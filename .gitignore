@@ -14,6 +14,8 @@ local.properties
 .signing/
 
 # User-specific configurations
+.idea/gradle.xml
+.idea/workspace.xml
 .idea/libraries/
 .idea/workspace.xml
 .idea/tasks.xml
