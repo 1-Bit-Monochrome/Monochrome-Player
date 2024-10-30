@@ -1,4 +1,4 @@
-package com.monochrome.monochrome_player;
+package app.src.test.java.com.monochrome.monochrome_player;
 
 import org.junit.Test;
 

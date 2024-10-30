@@ -1,4 +1,4 @@
-package com.monochrome.monochrome_player;
+package app.src.androidTest.java.com.monochrome.monochrome_player;
 
 import android.content.Context;
 
