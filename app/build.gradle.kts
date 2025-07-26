@@ -37,6 +37,8 @@ dependencies {
     implementation(libs.material)
     implementation(libs.activity)
     implementation(libs.constraintlayout)
+    // RecyclerView is used to display the list of songs on the home screen
+    implementation("androidx.recyclerview:recyclerview:1.3.1")
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
