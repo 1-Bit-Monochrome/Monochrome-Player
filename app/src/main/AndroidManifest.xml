@@ -2,9 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Permissions required for reading audio files from the device.  READ_MEDIA_AUDIO
-         is used on Android 13 (API 33) and above; READ_EXTERNAL_STORAGE acts as a
-         fallback for earlier versions. -->
+    <!-- Permission, We need this to access music files.
+        First one is for Android 13+, the second is a fallback for older phones.
+            READ_MEDIA_AUDIO is used on Android 13 (API 33) and above; READ_EXTERNAL_STORAGE 
+            acts as a fallback for earlier versions. -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
 

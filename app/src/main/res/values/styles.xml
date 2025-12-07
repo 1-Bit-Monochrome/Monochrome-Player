@@ -1,0 +1,12 @@
+<resources>
+    <style name="Widget.MonochromePlayer.ControlButton" parent="@style/Widget.AppCompat.ImageButton">
+        <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
+        <item name="android:padding">12dp</item>
+        <item name="android:tint">@color/player_control</item>
+    </style>
+
+    <style name="ShapeAppearance.MonochromePlayer.Circle" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+</resources>

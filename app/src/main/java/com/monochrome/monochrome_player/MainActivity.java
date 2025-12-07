@@ -78,10 +78,8 @@ public class MainActivity extends AppCompatActivity {
     private final char[] alphabetChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".toCharArray();
     private final Handler alphabetHideHandler = new Handler(Looper.getMainLooper());
     private final Runnable alphabetHideRunnable = this::hideAlphabetScroller;
-    private boolean playerSheetTouched = false;
-    private float playerSheetTouchStartY = -1f;
-    private boolean forceExpanded = false;
-    private boolean applyingForcedState = false;
+    private final Handler sheetGuardHandler = new Handler(Looper.getMainLooper());
+    private final Runnable sheetGuardRunnable = this::forceShowPlayerSheet;
 
     // Player UI
     private View playerSheet;
@@ -96,10 +94,9 @@ public class MainActivity extends AppCompatActivity {
     private ImageButton playPauseButton;
     private ImageButton forwardButton;
     private ImageButton repeatButton;
-    private LockableBottomSheetBehavior<View> playerSheetBehavior;
+    private BottomSheetBehavior<View> playerSheetBehavior;
     private ObjectAnimator artworkAnimator;
     private int collapsedPeekHeight = 0;
-    private int lastPlayerSheetState = BottomSheetBehavior.STATE_COLLAPSED;
 
     // Playback
     private MediaPlayer mediaPlayer;
@@ -215,7 +212,6 @@ public class MainActivity extends AppCompatActivity {
         navigationRailView.setSelectedItemId(R.id.nav_tracks);
         showSection(tracksContainer);
 
-        // Check media permissions and load songs accordingly
         checkPermissionsAndLoadSongs();
 
         // Make sure mini-player is visible on start
@@ -392,17 +388,28 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (playerSheet != null) {
-            playerSheet.post(this::forceShowPlayerSheet);
-        }
+            if (playerSheet != null) {
+                playerSheet.setVisibility(View.VISIBLE);
+                playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+            }
     }
 
     @Override
     protected void onStart() {
         super.onStart();
-        if (playerSheet != null) {
-            playerSheet.post(this::forceShowPlayerSheet);
-        }
+            if (playerSheet != null) {
+                playerSheet.setVisibility(View.VISIBLE);
+                playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+            }
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+            if (hasFocus && playerSheet != null) {
+                playerSheet.setVisibility(View.VISIBLE);
+                playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+            }
     }
 
     private void setupPlayerSheet() {
@@ -419,58 +426,24 @@ public class MainActivity extends AppCompatActivity {
         forwardButton = findViewById(R.id.button_forward);
         repeatButton = findViewById(R.id.button_repeat);
 
-        playerSheetBehavior = (LockableBottomSheetBehavior<View>) BottomSheetBehavior.from(playerSheet);
+        playerSheetBehavior = BottomSheetBehavior.from(playerSheet);
         playerSheetBehavior.setHideable(false);
         playerSheetBehavior.setSkipCollapsed(false);
+        playerSheetBehavior.setSaveFlags(BottomSheetBehavior.SAVE_NONE);
         playerSheetBehavior.setDraggable(true);
-        playerSheetBehavior.setNestedScrollEnabled(false);
         updateCollapsedPeekHeight();
         playerSheetBehavior.setPeekHeight(collapsedPeekHeight, false);
         playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
-        lastPlayerSheetState = BottomSheetBehavior.STATE_COLLAPSED;
         playerSheetBehavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
             @Override
             public void onStateChanged(@NonNull View bottomSheet, int newState) {
-                playerSheet.setVisibility(View.VISIBLE);
-                playerSheet.bringToFront();
-                if (forceExpanded && !playerSheetTouched
-                        && newState != BottomSheetBehavior.STATE_EXPANDED
-                        && newState != BottomSheetBehavior.STATE_HALF_EXPANDED) {
-                    applyingForcedState = true;
-                    playerSheetBehavior.setSkipCollapsed(true);
-                    playerSheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-                    return;
-                }
-                if (applyingForcedState) {
-                    if (newState == BottomSheetBehavior.STATE_EXPANDED
-                            || newState == BottomSheetBehavior.STATE_HALF_EXPANDED) {
-                        lastPlayerSheetState = newState;
-                        forceExpanded = true;
-                        playerSheetBehavior.setSkipCollapsed(true);
-                        applyingForcedState = false;
-                    }
-                    return;
-                }
-                if (newState == BottomSheetBehavior.STATE_COLLAPSED) {
-                    updateCollapsedPeekHeight();
-                    lastPlayerSheetState = BottomSheetBehavior.STATE_COLLAPSED;
-                    playerSheetBehavior.setSkipCollapsed(forceExpanded);
-                } else if (newState == BottomSheetBehavior.STATE_EXPANDED
-                        || newState == BottomSheetBehavior.STATE_HALF_EXPANDED) {
-                    lastPlayerSheetState = newState;
-                    forceExpanded = true;
-                    playerSheetBehavior.setSkipCollapsed(true);
-                } else if (forceExpanded && (newState == BottomSheetBehavior.STATE_DRAGGING
-                        || newState == BottomSheetBehavior.STATE_SETTLING)) {
-                    playerSheetBehavior.setSkipCollapsed(true);
-                    playerSheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-                    return;
+                if (newState == BottomSheetBehavior.STATE_HIDDEN) {
+                    playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
                 }
             }
 
             @Override
             public void onSlide(@NonNull View bottomSheet, float slideOffset) {
-                playerSheet.setVisibility(View.VISIBLE);
             }
         });
         playerSheet.setVisibility(View.VISIBLE);
@@ -479,9 +452,7 @@ public class MainActivity extends AppCompatActivity {
         playerSheet.setLayoutParams(lp);
 
         playerSheet.setOnClickListener(v -> expandPlayer());
-        playerSheet.setOnTouchListener(this::handlePlayerSheetTouch);
         playerHeader.setOnClickListener(v -> expandPlayer());
-        playerHeader.setOnTouchListener(this::handlePlayerSheetTouch);
         playerTitleView.setVisibility(View.VISIBLE);
         playerArtistView.setOnClickListener(v -> {});
 
@@ -492,11 +463,6 @@ public class MainActivity extends AppCompatActivity {
         repeatButton.setOnClickListener(v -> toggleRepeat());
         updateControlTint(shuffleButton, false);
         updateControlTint(repeatButton, false);
-
-        playerSheet.post(() -> {
-            updateCollapsedPeekHeight();
-            forceShowPlayerSheet();
-        });
     }
 
     private void updateCollapsedPeekHeight() {
@@ -513,13 +479,10 @@ public class MainActivity extends AppCompatActivity {
         if (collapsedPeekHeight <= 0) {
             updateCollapsedPeekHeight();
         }
-        applyingForcedState = false;
         playerSheetBehavior.setPeekHeight(collapsedPeekHeight, false);
         playerSheetBehavior.setHideable(false);
-        playerSheetBehavior.setSkipCollapsed(false);
         playerSheetBehavior.setDraggable(true);
         playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
-        forceExpanded = false;
         playerSheet.setVisibility(View.VISIBLE);
         playerSheet.bringToFront();
         playerSheet.setAlpha(1f);
@@ -527,30 +490,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void forceShowPlayerSheet() {
-        if (playerSheet == null || playerSheetBehavior == null) return;
-        int currentState = playerSheetBehavior.getState();
-        if (currentState == BottomSheetBehavior.STATE_EXPANDED
-                || currentState == BottomSheetBehavior.STATE_HALF_EXPANDED) {
-            return;
-        }
-        if (currentState == BottomSheetBehavior.STATE_DRAGGING
-                || currentState == BottomSheetBehavior.STATE_SETTLING) {
-            return;
-        }
-        updateCollapsedPeekHeight();
-        playerSheetBehavior.setHideable(false);
-        playerSheetBehavior.setSkipCollapsed(forceExpanded);
-        playerSheetBehavior.setDraggable(true);
-        playerSheetBehavior.setPeekHeight(collapsedPeekHeight, false);
-        if (currentState == BottomSheetBehavior.STATE_HIDDEN) {
-            playerSheetBehavior.setState(forceExpanded ? BottomSheetBehavior.STATE_EXPANDED : BottomSheetBehavior.STATE_COLLAPSED);
-        } else if (forceExpanded) {
-            playerSheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-        }
-        playerSheet.setVisibility(View.VISIBLE);
-        playerSheet.bringToFront();
-        playerSheet.setAlpha(1f);
-        playerSheet.setTranslationZ(100f);
+        showMiniPlayerCollapsed();
     }
 
     private void openSong(int index) {
@@ -559,23 +499,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void ensurePlayerSheetVisible() {
-        if (playerSheet == null || playerSheetBehavior == null) return;
-        int state = playerSheetBehavior.getState();
-        if (state == BottomSheetBehavior.STATE_EXPANDED
-                || state == BottomSheetBehavior.STATE_HALF_EXPANDED
-                || state == BottomSheetBehavior.STATE_DRAGGING
-                || state == BottomSheetBehavior.STATE_SETTLING) {
-            return;
-        }
-        if (collapsedPeekHeight <= 0) {
-            updateCollapsedPeekHeight();
-        }
-        if (forceExpanded) {
-            applyingForcedState = true;
-            playerSheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-        } else {
-            forceShowPlayerSheet();
-        }
+        showMiniPlayerCollapsed();
+    }
+
+    private void scheduleSheetGuard() {
+        
     }
 
     private void startPlayback(int index) {
@@ -595,7 +523,7 @@ public class MainActivity extends AppCompatActivity {
         playerAlbumView.setText(album == null || album.isEmpty() ? getString(R.string.player_album_unknown) : album);
         loadArtwork(song);
 
-        forceShowPlayerSheet();
+        ensurePlayerSheetVisible();
         releasePlayer();
 
         mediaPlayer = new MediaPlayer();
@@ -934,53 +862,10 @@ public class MainActivity extends AppCompatActivity {
 
     private void expandPlayer() {
         if (playerSheetBehavior == null) return;
+        playerSheetBehavior.setSkipCollapsed(false);
+        playerSheetBehavior.setHideable(false);
         playerSheetBehavior.setDraggable(true);
-        playerSheetBehavior.setSkipCollapsed(true);
         playerSheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-        lastPlayerSheetState = BottomSheetBehavior.STATE_EXPANDED;
-        forceExpanded = true;
-        applyingForcedState = false;
-    }
-
-    private boolean handlePlayerSheetTouch(View v, MotionEvent event) {
-        int action = event.getAction();
-        if (action == MotionEvent.ACTION_DOWN) {
-            playerSheetTouched = true;
-            playerSheetTouchStartY = event.getRawY();
-            if (playerSheetBehavior != null) {
-                playerSheetBehavior.setDraggable(true);
-                playerSheetBehavior.setSkipCollapsed(forceExpanded);
-            }
-        } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-            if (playerSheetBehavior != null && playerSheetTouchStartY >= 0) {
-                float deltaY = playerSheetTouchStartY - event.getRawY();
-                int threshold = dpToPx(10);
-                if (deltaY > threshold) {
-                    forceExpanded = true;
-                    applyingForcedState = false;
-                    playerSheetBehavior.setSkipCollapsed(true);
-                    playerSheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-                    lastPlayerSheetState = BottomSheetBehavior.STATE_EXPANDED;
-                    playerSheet.post(() -> playerSheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED));
-                    playerSheetTouched = false;
-                    playerSheetTouchStartY = -1f;
-                    return true;
-                } else if (deltaY < -threshold) {
-                    forceExpanded = false;
-                    applyingForcedState = false;
-                    playerSheetBehavior.setSkipCollapsed(false);
-                    playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
-                    lastPlayerSheetState = BottomSheetBehavior.STATE_COLLAPSED;
-                    playerSheet.post(() -> playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED));
-                    playerSheetTouched = false;
-                    playerSheetTouchStartY = -1f;
-                    return true;
-                }
-            }
-            playerSheetTouched = false;
-            playerSheetTouchStartY = -1f;
-        }
-        return false;
     }
 
     private int dpToPx(int dp) {

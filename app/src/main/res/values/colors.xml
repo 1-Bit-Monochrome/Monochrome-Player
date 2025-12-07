@@ -2,4 +2,10 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="player_sheet_start">#0F172A</color>
+    <color name="player_sheet_end">#111827</color>
+    <color name="player_handle">#E5E7EB</color>
+    <color name="player_accent">#4ADE80</color>
+    <color name="player_control">#E5E7EB</color>
+    <color name="alphabet_scrim">#AA0F172A</color>
 </resources>
