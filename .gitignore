@@ -1,15 +1,26 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
+# --- Android & Gradle Build ---
+.gradle/
 /build
-/captures
-.externalNativeBuild
-.cxx
+.cxx/
+.externalNativeBuild/
 local.properties
+
+# --- IDE: Android Studio / IntelliJ Bla ---
+*.iml
+.idea/
+/captures
+
+# --- IDE: VS Code ---
+.vscode/
+.continue/
+
+# --- Systemdateien ---
+.DS_Store
+Thumbs.db
+
+# --- Generierte App-Dateien ---
+*.apk
+*.aab
+
+# --- spezifischen Dateien ---
+projectStructure.md
