@@ -73,13 +73,10 @@ public class MainActivity extends AppCompatActivity {
     private View albumsContainer;
     private View settingsContainer;
     private NavigationRailView navigationRailView;
-    private View alphabetScrollerContainer;
-    private ViewGroup alphabetScroller;
+    private ViewGroup alphabetScrollerContainer;
+    private View alphabetToggleButton;
     private final char[] alphabetChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".toCharArray();
-    private final Handler alphabetHideHandler = new Handler(Looper.getMainLooper());
-    private final Runnable alphabetHideRunnable = this::hideAlphabetScroller;
-    private final Handler sheetGuardHandler = new Handler(Looper.getMainLooper());
-    private final Runnable sheetGuardRunnable = this::forceShowPlayerSheet;
+    private boolean isAlphabetExpanded = false;
 
     // Player UI
     private View playerSheet;
@@ -147,13 +144,15 @@ public class MainActivity extends AppCompatActivity {
         albumsContainer = findViewById(R.id.albums_container);
         settingsContainer = findViewById(R.id.settings_container);
         alphabetScrollerContainer = findViewById(R.id.alphabet_scroller_container);
-        alphabetScroller = findViewById(R.id.alphabet_scroller);
-        setupAlphabetScroller();
+        alphabetToggleButton = findViewById(R.id.alphabet_toggle_button);
+        
+        alphabetToggleButton.setOnClickListener(v -> toggleAlphabetScroller());
+        alphabetScrollerContainer.setOnClickListener(v -> toggleAlphabetScroller());
 
         // Initialize RecyclerView and adapter
         recyclerView = findViewById(R.id.recycler_view);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
-        recyclerView.setNestedScrollingEnabled(false); // keep sheet stable when scrolling list
+        recyclerView.setNestedScrollingEnabled(false);
         adapter = new SongAdapter(songs);
         recyclerView.setAdapter(adapter);
         adapter.setOnItemClickListener((song, position) -> openSong(position));
@@ -163,30 +162,13 @@ public class MainActivity extends AppCompatActivity {
                 registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
                     if (isGranted) {
                         loadSongs();
-                        ensurePlayerSheetVisible();
                     } else {
                         showEmptyState(R.string.empty_state_no_permission);
                         Toast.makeText(this, "Permission denied. Cannot load songs.", Toast.LENGTH_SHORT).show();
                     }
                 });
 
-        recyclerView.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override
-            public void onScrolled(RecyclerView rv, int dx, int dy) {
-                if (tracksContainer.getVisibility() == View.VISIBLE && !songs.isEmpty()) {
-                    showAlphabetScroller();
-                }
-            }
 
-            @Override
-            public void onScrollStateChanged(RecyclerView rv, int newState) {
-                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                    scheduleAlphabetHide();
-                } else if (!songs.isEmpty() && tracksContainer.getVisibility() == View.VISIBLE) {
-                    showAlphabetScroller();
-                }
-            }
-        });
 
         setupMediaSessionAndNotifications();
         setupPlayerSheet();
@@ -213,9 +195,6 @@ public class MainActivity extends AppCompatActivity {
         showSection(tracksContainer);
 
         checkPermissionsAndLoadSongs();
-
-        // Make sure mini-player is visible on start
-        playerSheet.post(this::ensurePlayerSheetVisible);
     }
 
     private void checkPermissionsAndLoadSongs() {
@@ -276,46 +255,83 @@ public class MainActivity extends AppCompatActivity {
             }
         }
         adapter.notifyDataSetChanged();
-        forceShowPlayerSheet();
         if (songs.isEmpty()) {
             showEmptyState(R.string.empty_state_no_music);
         } else {
             hideEmptyState();
         }
+        setupAlphabetScroller();
+        playerSheet.post(this::ensurePlayerSheetVisible);
     }
 
     private void setupAlphabetScroller() {
-        if (alphabetScroller == null) return;
-        alphabetScroller.removeAllViews();
-        for (char c : alphabetChars) {
+        if (alphabetScrollerContainer == null) return;
+        alphabetScrollerContainer.removeAllViews();
+        
+        java.util.Set<Character> availableLetters = new java.util.HashSet<>();
+        for (Song song : songs) {
+            String title = song.getTitle();
+            if (title != null && !title.isEmpty()) {
+                char firstChar = title.toUpperCase().charAt(0);
+                if (Character.isLetter(firstChar)) {
+                    availableLetters.add(firstChar);
+                }
+            }
+        }
+        
+        java.util.List<Character> sortedLetters = new java.util.ArrayList<>(availableLetters);
+        java.util.Collections.sort(sortedLetters);
+        
+        if (sortedLetters.isEmpty()) {
+            if (alphabetToggleButton != null) {
+                alphabetToggleButton.setVisibility(View.GONE);
+            }
+            return;
+        }
+        
+        for (char c : sortedLetters) {
             TextView letterView = new TextView(this);
             letterView.setText(String.valueOf(c));
-            letterView.setGravity(Gravity.CENTER_HORIZONTAL);
-            letterView.setPadding(0, 8, 0, 8);
-            letterView.setTextSize(12f);
-            letterView.setTextColor(ContextCompat.getColor(this, android.R.color.darker_gray));
+            letterView.setGravity(Gravity.CENTER);
+            letterView.setPadding(4, 6, 4, 6);
+            letterView.setTextSize(14f);
+            letterView.setTextColor(ContextCompat.getColor(this, R.color.player_control));
+            letterView.setTextStyle(android.graphics.Typeface.BOLD);
+            letterView.setMinimumWidth(dpToPx(24));
+            letterView.setClickable(true);
+            letterView.setFocusable(true);
+            letterView.setBackground(ContextCompat.getDrawable(this, android.R.drawable.list_selector_background));
+            
             final String target = String.valueOf(c);
-            letterView.setOnClickListener(v -> scrollToLetter(target));
-            alphabetScroller.addView(letterView);
+            letterView.setOnClickListener(v -> {
+                scrollToLetter(target);
+                toggleAlphabetScroller();
+                v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+            });
+            alphabetScrollerContainer.addView(letterView);
         }
-        alphabetScrollerContainer.setOnTouchListener((v, event) -> {
-            if (alphabetScroller == null || alphabetChars.length == 0) return false;
-            switch (event.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
-                case MotionEvent.ACTION_MOVE:
-                    v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
-                    v.getParent().requestDisallowInterceptTouchEvent(true);
-                    handleAlphabetTouch(event.getY());
-                    showAlphabetScroller();
-                    return true;
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL:
-                    scheduleAlphabetHide();
-                    return true;
-                default:
-                    return false;
+        
+        if (alphabetToggleButton != null) {
+            alphabetToggleButton.setVisibility(View.VISIBLE);
+        }
+    }
+    
+    private void toggleAlphabetScroller() {
+        if (alphabetScrollerContainer == null) return;
+        
+        isAlphabetExpanded = !isAlphabetExpanded;
+        
+        if (isAlphabetExpanded) {
+            alphabetScrollerContainer.setVisibility(View.VISIBLE);
+            if (alphabetToggleButton != null) {
+                alphabetToggleButton.setVisibility(View.GONE);
             }
-        });
+        } else {
+            alphabetScrollerContainer.setVisibility(View.GONE);
+            if (alphabetToggleButton != null) {
+                alphabetToggleButton.setVisibility(View.VISIBLE);
+            }
+        }
     }
 
     private void scrollToLetter(String letter) {
@@ -327,52 +343,19 @@ public class MainActivity extends AppCompatActivity {
                 String first = title.substring(0, 1).toUpperCase();
                 if (first.compareTo(target) >= 0) {
                     recyclerView.scrollToPosition(i);
-                    showAlphabetScroller();
-                    scheduleAlphabetHide();
                     return;
                 }
             }
         }
         recyclerView.scrollToPosition(songs.size() - 1);
-        showAlphabetScroller();
-        scheduleAlphabetHide();
     }
 
-    private void handleAlphabetTouch(float touchY) {
-        if (alphabetScrollerContainer == null || alphabetChars.length == 0) return;
-        int containerHeight = alphabetScrollerContainer.getHeight();
-        if (containerHeight <= 0) return;
-        float clampedY = Math.max(0, Math.min(touchY, containerHeight));
-        float perItem = (float) containerHeight / alphabetChars.length;
-        int index = (int) (clampedY / perItem);
-        index = Math.max(0, Math.min(alphabetChars.length - 1, index));
-        scrollToLetter(String.valueOf(alphabetChars[index]));
-    }
 
-    private void showAlphabetScroller() {
-        alphabetHideHandler.removeCallbacks(alphabetHideRunnable);
-        if (alphabetScrollerContainer != null && tracksContainer.getVisibility() == View.VISIBLE && !songs.isEmpty()) {
-            alphabetScrollerContainer.setVisibility(View.VISIBLE);
-        }
-    }
-
-    private void hideAlphabetScroller() {
-        if (alphabetScrollerContainer != null) {
-            alphabetScrollerContainer.setVisibility(View.GONE);
-        }
-        ensurePlayerSheetVisible();
-    }
-
-    private void scheduleAlphabetHide() {
-        alphabetHideHandler.removeCallbacks(alphabetHideRunnable);
-        alphabetHideHandler.postDelayed(alphabetHideRunnable, 1200);
-    }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
         releasePlayer();
-        alphabetHideHandler.removeCallbacks(alphabetHideRunnable);
         clickHandler.removeCallbacks(backSingleAction);
         clickHandler.removeCallbacks(forwardSingleAction);
         if (notificationActionReceiver != null) {
@@ -388,28 +371,11 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-            if (playerSheet != null) {
-                playerSheet.setVisibility(View.VISIBLE);
-                playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
-            }
-    }
-
-    @Override
-    protected void onStart() {
-        super.onStart();
-            if (playerSheet != null) {
-                playerSheet.setVisibility(View.VISIBLE);
-                playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
-            }
     }
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-            if (hasFocus && playerSheet != null) {
-                playerSheet.setVisibility(View.VISIBLE);
-                playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
-            }
     }
 
     private void setupPlayerSheet() {
@@ -431,14 +397,25 @@ public class MainActivity extends AppCompatActivity {
         playerSheetBehavior.setSkipCollapsed(false);
         playerSheetBehavior.setSaveFlags(BottomSheetBehavior.SAVE_NONE);
         playerSheetBehavior.setDraggable(true);
-        updateCollapsedPeekHeight();
-        playerSheetBehavior.setPeekHeight(collapsedPeekHeight, false);
+        playerSheetBehavior.setPeekHeight(dpToPx(88), false);
         playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+        
+        playerSheet.post(() -> {
+            updateCollapsedPeekHeight();
+            if (collapsedPeekHeight > 0) {
+                playerSheetBehavior.setPeekHeight(collapsedPeekHeight, false);
+            }
+        });
         playerSheetBehavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
             @Override
             public void onStateChanged(@NonNull View bottomSheet, int newState) {
                 if (newState == BottomSheetBehavior.STATE_HIDDEN) {
                     playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+                }
+                if (newState == BottomSheetBehavior.STATE_EXPANDED) {
+                    playerSheetBehavior.setSkipCollapsed(true);
+                } else if (newState == BottomSheetBehavior.STATE_COLLAPSED) {
+                    playerSheetBehavior.setSkipCollapsed(false);
                 }
             }
 
@@ -451,8 +428,8 @@ public class MainActivity extends AppCompatActivity {
         lp.gravity = Gravity.BOTTOM;
         playerSheet.setLayoutParams(lp);
 
-        playerSheet.setOnClickListener(v -> expandPlayer());
-        playerHeader.setOnClickListener(v -> expandPlayer());
+        playerSheet.setOnClickListener(v -> togglePlayerSheet());
+        playerHeader.setOnClickListener(v -> togglePlayerSheet());
         playerTitleView.setVisibility(View.VISIBLE);
         playerArtistView.setOnClickListener(v -> {});
 
@@ -479,14 +456,14 @@ public class MainActivity extends AppCompatActivity {
         if (collapsedPeekHeight <= 0) {
             updateCollapsedPeekHeight();
         }
-        playerSheetBehavior.setPeekHeight(collapsedPeekHeight, false);
+        int peekHeight = collapsedPeekHeight > 0 ? collapsedPeekHeight : dpToPx(88);
+        playerSheetBehavior.setPeekHeight(peekHeight, false);
         playerSheetBehavior.setHideable(false);
         playerSheetBehavior.setDraggable(true);
-        playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+        if (playerSheetBehavior.getState() != BottomSheetBehavior.STATE_EXPANDED) {
+            playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+        }
         playerSheet.setVisibility(View.VISIBLE);
-        playerSheet.bringToFront();
-        playerSheet.setAlpha(1f);
-        playerSheet.setTranslationZ(100f);
     }
 
     private void forceShowPlayerSheet() {
@@ -522,8 +499,9 @@ public class MainActivity extends AppCompatActivity {
         String album = song.getAlbum();
         playerAlbumView.setText(album == null || album.isEmpty() ? getString(R.string.player_album_unknown) : album);
         loadArtwork(song);
-
+        
         ensurePlayerSheetVisible();
+
         releasePlayer();
 
         mediaPlayer = new MediaPlayer();
@@ -534,7 +512,6 @@ public class MainActivity extends AppCompatActivity {
                 updatePlayPauseIcon(true);
                 startArtworkSpin();
                 updateNotification(true);
-                ensurePlayerSheetVisible();
             });
             mediaPlayer.setOnCompletionListener(mp -> {
                 if (isRepeatEnabled) {
@@ -542,7 +519,6 @@ public class MainActivity extends AppCompatActivity {
                     mp.start();
                     startArtworkSpin();
                     updateNotification(true);
-                    ensurePlayerSheetVisible();
                 } else {
                     playNextTrack();
                 }
@@ -854,7 +830,6 @@ public class MainActivity extends AppCompatActivity {
         playerTitleView.setText(getString(R.string.player_not_playing));
         playerArtistView.setText("");
         updatePlayPauseIcon(false);
-        ensurePlayerSheetVisible();
         if (notificationManager != null) {
             notificationManager.cancel(NOTIFICATION_ID);
         }
@@ -862,10 +837,26 @@ public class MainActivity extends AppCompatActivity {
 
     private void expandPlayer() {
         if (playerSheetBehavior == null) return;
-        playerSheetBehavior.setSkipCollapsed(false);
         playerSheetBehavior.setHideable(false);
+        playerSheetBehavior.setSkipCollapsed(true);
         playerSheetBehavior.setDraggable(true);
         playerSheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+    }
+
+    private void togglePlayerSheet() {
+        if (playerSheetBehavior == null) return;
+        if (playerSheetBehavior.getState() == BottomSheetBehavior.STATE_EXPANDED) {
+            collapsePlayer();
+        } else {
+            expandPlayer();
+        }
+    }
+
+    private void collapsePlayer() {
+        if (playerSheetBehavior == null) return;
+        playerSheetBehavior.setSkipCollapsed(false);
+        playerSheetBehavior.setDraggable(true);
+        playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
     }
 
     private int dpToPx(int dp) {
@@ -885,15 +876,19 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 hideEmptyState();
             }
-            if (!songs.isEmpty()) {
-                scheduleAlphabetHide();
+            if (alphabetToggleButton != null && !songs.isEmpty()) {
+                alphabetToggleButton.setVisibility(View.VISIBLE);
             }
-            ensurePlayerSheetVisible();
+        } else {
+            hideEmptyState();
+            if (alphabetToggleButton != null) {
+                alphabetToggleButton.setVisibility(View.GONE);
+            }
+            if (alphabetScrollerContainer != null) {
+                alphabetScrollerContainer.setVisibility(View.GONE);
+                isAlphabetExpanded = false;
+            }
         }
-        // Keep player visible even when switching sections
-        hideEmptyState();
-        hideAlphabetScroller();
-        ensurePlayerSheetVisible();
     }
 
     private void setSectionVisibility(View section, boolean visible) {
