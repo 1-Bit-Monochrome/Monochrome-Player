@@ -8,18 +8,22 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 import java.util.List;
 
-public class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder> {
+public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
-    private List<Song> songList;
+    private List<ListItem> itemList;
     private OnItemClickListener listener;
+    private OnHeaderClickListener headerClickListener;
 
-    // Interface for handling clicks
     public interface OnItemClickListener {
         void onItemClick(Song song, int position);
     }
 
-    public SongAdapter(List<Song> songList) {
-        this.songList = songList;
+    public interface OnHeaderClickListener {
+        void onHeaderClick();
+    }
+
+    public SongAdapter(List<ListItem> itemList) {
+        this.itemList = itemList;
     }
 
   
@@ -27,34 +31,73 @@ public class SongAdapter extends RecyclerView.Adapter<SongAdapter.SongViewHolder
         this.listener = listener;
     }
 
-    @NonNull
-    @Override
-    public SongViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View view = LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_song, parent, false);
-        return new SongViewHolder(view);
+    public void setOnHeaderClickListener(OnHeaderClickListener listener) {
+        this.headerClickListener = listener;
     }
 
     @Override
-    public void onBindViewHolder(@NonNull SongViewHolder holder, int position) {
-        Song song = songList.get(position);
-        holder.titleText.setText(song.getTitle());
-        holder.artistText.setText(song.getArtist());
+    public int getItemViewType(int position) {
+        return itemList.get(position).getType();
+    }
 
-        // When user taps a row, trigger the listener, baby
-        holder.itemView.setOnClickListener(v -> {
-            if (listener != null) {
-                int adapterPosition = holder.getBindingAdapterPosition();
-                if (adapterPosition != RecyclerView.NO_POSITION) {
-                    listener.onItemClick(song, adapterPosition);
+    @NonNull
+    @Override
+    public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        if (viewType == ListItem.TYPE_HEADER) {
+            View view = LayoutInflater.from(parent.getContext())
+                    .inflate(R.layout.item_header, parent, false);
+            return new HeaderViewHolder(view);
+        } else {
+            View view = LayoutInflater.from(parent.getContext())
+                    .inflate(R.layout.item_song, parent, false);
+            return new SongViewHolder(view);
+        }
+    }
+
+    @Override
+    public void onBindViewHolder(@NonNull RecyclerView.ViewHolder holder, int position) {
+        ListItem item = itemList.get(position);
+        
+        if (holder instanceof HeaderViewHolder) {
+            ((HeaderViewHolder) holder).letterText.setText(item.getHeader());
+            holder.itemView.setOnClickListener(v -> {
+                if (headerClickListener != null) {
+                    headerClickListener.onHeaderClick();
                 }
-            }
-        });
+            });
+        } else if (holder instanceof SongViewHolder) {
+            Song song = item.getSong();
+            SongViewHolder songHolder = (SongViewHolder) holder;
+            songHolder.titleText.setText(song.getTitle());
+            songHolder.artistText.setText(song.getArtist());
+
+            songHolder.itemView.setOnClickListener(v -> {
+                if (listener != null) {
+                    listener.onItemClick(song, item.getPosition());
+                }
+            });
+        }
     }
 
     @Override
     public int getItemCount() {
-        return songList.size();
+        return itemList.size();
+    }
+
+    public ListItem getItemAtPosition(int position) {
+        if (position >= 0 && position < itemList.size()) {
+            return itemList.get(position);
+        }
+        return null;
+    }
+
+    static class HeaderViewHolder extends RecyclerView.ViewHolder {
+        TextView letterText;
+
+        public HeaderViewHolder(@NonNull View itemView) {
+            super(itemView);
+            letterText = itemView.findViewById(R.id.headerLetter);
+        }
     }
 
     static class SongViewHolder extends RecyclerView.ViewHolder {
