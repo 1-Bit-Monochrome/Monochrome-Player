@@ -13,6 +13,7 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private List<ListItem> itemList;
     private OnItemClickListener listener;
     private OnHeaderClickListener headerClickListener;
+    private OnItemLongClickListener longClickListener;
 
     public interface OnItemClickListener {
         void onItemClick(Song song, int position);
@@ -20,6 +21,10 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     public interface OnHeaderClickListener {
         void onHeaderClick();
+    }
+
+    public interface OnItemLongClickListener {
+        void onItemLongClick(Song song, int position);
     }
 
     public SongAdapter(List<ListItem> itemList) {
@@ -34,6 +39,8 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     public void setOnHeaderClickListener(OnHeaderClickListener listener) {
         this.headerClickListener = listener;
     }
+
+    public void setOnItemLongClickListener(OnItemLongClickListener l) { this.longClickListener = l; }
 
     @Override
     public int getItemViewType(int position) {
@@ -75,6 +82,13 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 if (listener != null) {
                     listener.onItemClick(song, item.getPosition());
                 }
+            });
+            songHolder.itemView.setOnLongClickListener(v -> {
+                if (longClickListener != null) {
+                    longClickListener.onItemLongClick(song, item.getPosition());
+                    return true;
+                }
+                return false;
             });
         }
     }

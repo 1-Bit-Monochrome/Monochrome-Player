@@ -83,9 +83,23 @@ public class MainActivity extends AppCompatActivity {
     private RecyclerView recyclerView;
     private RecyclerView artistsRecyclerView;
     private RecyclerView albumsRecyclerView;
+    private RecyclerView playlistsRecyclerView;
+    private View playlistDetailView;
+    private TextView playlistDetailTitle;
+    private ImageButton playlistDetailBack;
+    private ImageButton playlistDetailAddButton;
+    private RecyclerView playlistSongsRecyclerView;
     private TextView emptyView;
     private TextView artistsEmptyView;
     private TextView albumsEmptyView;
+    private com.google.android.material.floatingactionbutton.FloatingActionButton buttonCreatePlaylist;
+    private PlaylistAdapter playlistAdapter;
+    private java.util.List<Playlist> playlists = new java.util.ArrayList<>();
+    private Playlist currentPlaylistViewing = null;
+    private ImageButton playlistAddInTracks;
+    // Playback queue: when non-null playback is limited to these song indices (indices into `songs`)
+    private java.util.List<Integer> playbackQueue = null;
+    private int playbackQueuePos = -1;
     private ActivityResultLauncher<String> requestPermissionLauncher;
     private ActivityResultLauncher<String> wallpaperPickerLauncher;
     private ActivityResultLauncher<Uri> folderPickerLauncher;
@@ -146,6 +160,8 @@ public class MainActivity extends AppCompatActivity {
     private ImageButton fullForwardButton;
     private ImageButton fullRepeatButton;
     private ImageButton fullPlayerClose;
+    private ImageButton fullAddToPlaylistButton;
+    private ImageButton fullFavoriteButton;
     private ObjectAnimator fullArtworkAnimator;
     
     
@@ -242,9 +258,51 @@ public class MainActivity extends AppCompatActivity {
         albumsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
         albumsRecyclerView.setNestedScrollingEnabled(false);
 
+        // Playlists UI
+        playlistsRecyclerView = findViewById(R.id.playlists_recycler_view);
+        if (playlistsRecyclerView != null) {
+            playlistsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+            playlistsRecyclerView.setNestedScrollingEnabled(false);
+        }
+        playlistSongsRecyclerView = findViewById(R.id.playlist_songs_recycler);
+        if (playlistSongsRecyclerView != null) {
+            playlistSongsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+            playlistSongsRecyclerView.setNestedScrollingEnabled(false);
+        }
+        buttonCreatePlaylist = findViewById(R.id.button_create_playlist);
+        playlistAddInTracks = findViewById(R.id.playlist_add_in_tracks);
+        playlistDetailView = findViewById(R.id.playlist_detail);
+        playlistDetailTitle = findViewById(R.id.playlist_detail_title);
+        playlistDetailBack = findViewById(R.id.playlist_detail_back);
+        playlistDetailAddButton = findViewById(R.id.playlist_detail_add);
+
         emptyView = findViewById(R.id.empty_view);
         artistsEmptyView = findViewById(R.id.artists_empty_view);
         albumsEmptyView = findViewById(R.id.albums_empty_view);
+
+        // Load persisted playlists
+        loadPlaylists();
+        if (buttonCreatePlaylist != null) {
+            buttonCreatePlaylist.setOnClickListener(v -> showCreatePlaylistDialog());
+        }
+        if (playlistAddInTracks != null) {
+            playlistAddInTracks.setOnClickListener(v -> {
+                if (currentPlaylistViewing != null) {
+                    showAddToPlaylistDialogForPlaylist(currentPlaylistViewing);
+                } else {
+                    // fallback: add current playing song to chosen playlist
+                    showAddToPlaylistDialogForCurrentSong();
+                }
+            });
+        }
+        if (playlistDetailBack != null) {
+            playlistDetailBack.setOnClickListener(v -> showPlaylistListView());
+        }
+        if (playlistDetailAddButton != null) {
+            playlistDetailAddButton.setOnClickListener(v -> {
+                if (currentPlaylistViewing != null) showAddToPlaylistDialogForPlaylist(currentPlaylistViewing);
+            });
+        }
         
         requestPermissionLauncher =
                 registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
@@ -733,6 +791,8 @@ public class MainActivity extends AppCompatActivity {
         fullPlayPauseButton = findViewById(R.id.full_button_play_pause);
         fullForwardButton = findViewById(R.id.full_button_forward);
         fullRepeatButton = findViewById(R.id.full_button_repeat);
+        fullAddToPlaylistButton = findViewById(R.id.full_button_add_to_playlist);
+        fullFavoriteButton = findViewById(R.id.full_button_favorite);
         fullPlayerClose = findViewById(R.id.full_player_close);
 
         fullPlayerArtistView.setOnClickListener(v -> openArtistView());
@@ -745,6 +805,36 @@ public class MainActivity extends AppCompatActivity {
         fullBackButton.setOnClickListener(v -> handleBackPress());
         fullPlayPauseButton.setOnClickListener(v -> togglePlayPause());
         fullForwardButton.setOnClickListener(v -> handleForwardPress());
+        if (fullAddToPlaylistButton != null) {
+            fullAddToPlaylistButton.setOnClickListener(v -> {
+                if (currentSongIndex >= 0 && currentSongIndex < songs.size()) {
+                    Song song = songs.get(currentSongIndex);
+                    showSimplePlaylistPicker(p -> {
+                        if (p.containsSong(song.getPath())) {
+                            Toast.makeText(this, "Already in playlist", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        p.addSong(song.getPath());
+                        settingsManager.updatePlaylists(playlists);
+                        // visual-only feedback handled elsewhere; no toast here
+                    });
+                }
+            });
+        }
+        if (fullFavoriteButton != null) {
+            fullFavoriteButton.setOnClickListener(v -> {
+                if (currentSongIndex < 0 || currentSongIndex >= songs.size()) return;
+                Playlist fav = getFavoritesPlaylist();
+                String path = songs.get(currentSongIndex).getPath();
+                if (fav.containsSong(path)) {
+                    fav.removeSong(path);
+                } else {
+                    fav.addSong(path);
+                }
+                settingsManager.updatePlaylists(playlists);
+                updateFavoriteButtonState();
+            });
+        }
         fullRepeatButton.setOnClickListener(v -> toggleRepeat());
 
         updateControlTint(fullShuffleButton, false);
@@ -1228,7 +1318,8 @@ public class MainActivity extends AppCompatActivity {
         
     }
 
-    private void startPlayback(int index) {
+    // Core playback implementation (keeps behavior identical); callers should use wrapper methods
+    private void startPlaybackCore(int index) {
         if (index < 0 || index >= songs.size()) return;
         clickHandler.removeCallbacks(backSingleAction);
         clickHandler.removeCallbacks(forwardSingleAction);
@@ -1246,6 +1337,8 @@ public class MainActivity extends AppCompatActivity {
         loadArtwork(song);
         
         ensurePlayerSheetVisible();
+
+        updateFavoriteButtonState();
 
         releasePlayer();
 
@@ -1274,6 +1367,25 @@ public class MainActivity extends AppCompatActivity {
             updatePlayPauseIcon(false);
             updateNotification(false);
         }
+    }
+
+    // Public wrapper: start playback in global (tracks) mode — clears any playlist-scoped queue
+    private void startPlayback(int index) {
+        playbackQueue = null;
+        playbackQueuePos = -1;
+        startPlaybackCore(index);
+    }
+
+    // Public wrapper: start playback with a specified queue (indices into `songs`).
+    private void startPlaybackWithQueue(int index, java.util.List<Integer> queue) {
+        if (queue == null || queue.isEmpty()) {
+            startPlayback(index);
+            return;
+        }
+        playbackQueue = new java.util.ArrayList<>(queue);
+        playbackQueuePos = playbackQueue.indexOf(index);
+        if (playbackQueuePos < 0) playbackQueuePos = 0;
+        startPlaybackCore(index);
     }
 
     private void togglePlayPause() {
@@ -1334,28 +1446,61 @@ public class MainActivity extends AppCompatActivity {
 
     private void playNextTrack() {
         if (songs.isEmpty()) return;
-        int nextIndex;
-        if (isShuffleEnabled) {
-            nextIndex = randomIndexDifferentFrom(currentSongIndex);
+        int nextIndex = -1;
+        if (playbackQueue != null && !playbackQueue.isEmpty()) {
+            if (isShuffleEnabled) {
+                // pick random from queue different from current queue pos
+                int cand = random.nextInt(playbackQueue.size());
+                if (cand == playbackQueuePos) cand = (cand + 1) % playbackQueue.size();
+                playbackQueuePos = cand;
+            } else {
+                playbackQueuePos = (playbackQueuePos + 1) % playbackQueue.size();
+            }
+            nextIndex = playbackQueue.get(playbackQueuePos);
         } else {
-            nextIndex = (currentSongIndex + 1) % songs.size();
+            if (isShuffleEnabled) {
+                nextIndex = randomIndexDifferentFrom(currentSongIndex);
+            } else {
+                nextIndex = (currentSongIndex + 1) % songs.size();
+            }
         }
-        startPlayback(nextIndex);
+        // start depending on queue presence (startPlaybackWithQueue will keep queue unchanged)
+        if (playbackQueue != null && !playbackQueue.isEmpty()) {
+            startPlaybackCore(nextIndex);
+        } else {
+            startPlayback(nextIndex);
+        }
         updateNotification(mediaPlayer != null && mediaPlayer.isPlaying());
     }
 
     private void playPreviousTrack() {
         if (songs.isEmpty()) return;
-        int prevIndex;
-        if (isShuffleEnabled) {
-            prevIndex = randomIndexDifferentFrom(currentSongIndex);
+        int prevIndex = -1;
+        if (playbackQueue != null && !playbackQueue.isEmpty()) {
+            if (isShuffleEnabled) {
+                int cand = random.nextInt(playbackQueue.size());
+                if (cand == playbackQueuePos) cand = (cand + 1) % playbackQueue.size();
+                playbackQueuePos = cand;
+            } else {
+                playbackQueuePos = playbackQueuePos - 1;
+                if (playbackQueuePos < 0) playbackQueuePos = playbackQueue.size() - 1;
+            }
+            prevIndex = playbackQueue.get(playbackQueuePos);
         } else {
-            prevIndex = currentSongIndex - 1;
-            if (prevIndex < 0) {
-                prevIndex = songs.size() - 1;
+            if (isShuffleEnabled) {
+                prevIndex = randomIndexDifferentFrom(currentSongIndex);
+            } else {
+                prevIndex = currentSongIndex - 1;
+                if (prevIndex < 0) {
+                    prevIndex = songs.size() - 1;
+                }
             }
         }
-        startPlayback(prevIndex);
+        if (playbackQueue != null && !playbackQueue.isEmpty()) {
+            startPlaybackCore(prevIndex);
+        } else {
+            startPlayback(prevIndex);
+        }
         updateNotification(mediaPlayer != null && mediaPlayer.isPlaying());
     }
 
@@ -1423,8 +1568,8 @@ public class MainActivity extends AppCompatActivity {
             if (item.getType() == ListItem.TYPE_HEADER) {
                 showAlphabetPopupForArtists();
             } else if (item.getType() == ListItem.TYPE_ARTIST) {
-                // Future: Open artist detail view with songs
-                Toast.makeText(this, "Artist: " + item.getArtist().getName(), Toast.LENGTH_SHORT).show();
+                String artistName = item.getArtist().getName();
+                showSongsForArtist(artistName);
             }
         });
     }
@@ -1454,6 +1599,42 @@ public class MainActivity extends AppCompatActivity {
     private void showAlphabetPopupForArtists() {
         // Similar to songs alphabet popup but for artists
         showGenericAlphabetPopup(artistAdapter, artistsRecyclerView);
+    }
+
+    private void showSongsForArtist(String artistName) {
+        if (artistName == null || artistsRecyclerView == null) return;
+        currentArtistFilter = artistName;
+
+        List<ListItem> items = new ArrayList<>();
+        final java.util.List<Integer> queueIndices = new java.util.ArrayList<>();
+        for (int i = 0; i < songs.size(); i++) {
+            Song s = songs.get(i);
+            String a = s.getArtist();
+            if (a == null || a.isEmpty()) a = getString(R.string.player_artist_unknown);
+            if (artistName.equals(a)) {
+                items.add(ListItem.createSong(s, i));
+                queueIndices.add(i);
+            }
+        }
+
+        SongAdapter sa = new SongAdapter(items);
+        sa.setOnItemClickListener((song, pos) -> {
+            if (pos >= 0 && pos < queueIndices.size()) {
+                int globalIndex = queueIndices.get(pos);
+                startPlaybackWithQueue(globalIndex, queueIndices);
+            }
+        });
+        sa.setOnItemLongClickListener((song, pos) -> {
+            // allow removal or other actions in future
+        });
+
+        artistsRecyclerView.setAdapter(sa);
+        navigationRailView.setSelectedItemId(R.id.nav_artists);
+        showSection(artistsContainer);
+    }
+
+    private void restoreArtistList() {
+        loadArtists();
     }
 
     private void loadAlbums() {
@@ -1491,8 +1672,8 @@ public class MainActivity extends AppCompatActivity {
             if (item.getType() == ListItem.TYPE_HEADER) {
                 showAlphabetPopupForAlbums();
             } else if (item.getType() == ListItem.TYPE_ALBUM) {
-                // Future: Open album detail view with songs
-                Toast.makeText(this, "Album: " + item.getAlbum().getName(), Toast.LENGTH_SHORT).show();
+                String albumName = item.getAlbum().getName();
+                showSongsForAlbum(albumName);
             }
         });
     }
@@ -1521,6 +1702,44 @@ public class MainActivity extends AppCompatActivity {
 
     private void showAlphabetPopupForAlbums() {
         showGenericAlphabetPopup(albumAdapter, albumsRecyclerView);
+    }
+
+    private void showSongsForAlbum(String albumName) {
+        if (albumName == null || albumsRecyclerView == null) return;
+        currentAlbumFilter = albumName;
+
+        List<ListItem> items = new ArrayList<>();
+        final java.util.List<Integer> queueIndices = new java.util.ArrayList<>();
+        for (int i = 0; i < songs.size(); i++) {
+            Song s = songs.get(i);
+            String a = s.getAlbum();
+            if (a == null || a.isEmpty()) a = getString(R.string.player_album_unknown);
+            if (albumName.equals(a)) {
+                items.add(ListItem.createSong(s, i));
+                queueIndices.add(i);
+            }
+        }
+
+        SongAdapter sa = new SongAdapter(items);
+        sa.setOnItemClickListener((song, pos) -> {
+            // pos is position within this items list; translate to global index via queueIndices
+            if (pos >= 0 && pos < queueIndices.size()) {
+                int globalIndex = queueIndices.get(pos);
+                startPlaybackWithQueue(globalIndex, queueIndices);
+            }
+        });
+        sa.setOnItemLongClickListener((song, pos) -> {
+            // allow default long-press (no-op) or future features
+        });
+
+        albumsRecyclerView.setAdapter(sa);
+        // ensure we're in Albums section
+        navigationRailView.setSelectedItemId(R.id.nav_albums);
+        showSection(albumsContainer);
+    }
+
+    private void restoreAlbumList() {
+        loadAlbums();
     }
 
     private void showGenericAlphabetPopup(GenericListAdapter adapter, RecyclerView targetRecyclerView) {
@@ -1632,6 +1851,24 @@ public class MainActivity extends AppCompatActivity {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
+                // If a playlist detail is open, close it first
+                if (currentPlaylistViewing != null) {
+                    showPlaylistListView();
+                    return;
+                }
+                // If currently viewing an album detail, restore album list
+                if (currentAlbumFilter != null) {
+                    currentAlbumFilter = null;
+                    restoreAlbumList();
+                    return;
+                }
+                // If currently viewing an artist detail, restore artist list
+                if (currentArtistFilter != null) {
+                    currentArtistFilter = null;
+                    restoreArtistList();
+                    return;
+                }
+                // Otherwise, if a different navigation tab is selected, go back to Tracks
                 if (navigationRailView != null && navigationRailView.getSelectedItemId() != R.id.nav_tracks) {
                     navigationRailView.setSelectedItemId(R.id.nav_tracks);
                     return;
@@ -1747,6 +1984,7 @@ public class MainActivity extends AppCompatActivity {
         // Sync full player if it's open
         if (fullPlayerSheet != null && fullPlayerSheet.getVisibility() == View.VISIBLE) {
             syncFullPlayerState();
+            updateFavoriteButtonState();
         }
     }
 
@@ -1855,6 +2093,8 @@ public class MainActivity extends AppCompatActivity {
         setSectionVisibility(settingsContainer, targetSection == settingsContainer);
 
         if (targetSection == tracksContainer) {
+            // Always restore the full songs listing when viewing Tracks
+            restoreFullSongList();
             if (songs.isEmpty()) {
                 showEmptyState(hasReadMediaPermission() ? R.string.empty_state_no_music : R.string.empty_state_no_permission);
             } else {
@@ -1898,6 +2138,277 @@ public class MainActivity extends AppCompatActivity {
                         .withEndAction(() -> section.setVisibility(View.GONE))
                         .start();
             }
+        }
+    }
+
+    // --- Playlist helpers ---
+    private void loadPlaylists() {
+        playlists.clear();
+        if (settingsManager != null) {
+            playlists.addAll(settingsManager.getPlaylists());
+        }
+        // Ensure Favorites exists
+        boolean hasFav = false;
+        for (Playlist p : playlists) if ("Favorites".equalsIgnoreCase(p.getName())) hasFav = true;
+        if (!hasFav) {
+            Playlist fav = new Playlist("Favorites");
+            playlists.add(0, fav);
+            if (settingsManager != null) settingsManager.updatePlaylists(playlists);
+        }
+
+        if (playlistsRecyclerView != null) {
+            playlistAdapter = new PlaylistAdapter(this, playlists, (p, pos) -> showPlaylistInPlaylistSection(p));
+            playlistAdapter.setOnItemLongClickListener((p, pos) -> {
+                if ("Favorites".equalsIgnoreCase(p.getName())) {
+                    Toast.makeText(this, "Cannot delete Favorites", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                new androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("Delete playlist")
+                        .setMessage("Delete playlist '" + p.getName() + "'?")
+                        .setPositiveButton("Delete", (d, which) -> {
+                            playlists.remove(pos);
+                            settingsManager.updatePlaylists(playlists);
+                            playlistAdapter.notifyDataSetChanged();
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
+            });
+            playlistsRecyclerView.setAdapter(playlistAdapter);
+        }
+    }
+
+    private void showCreatePlaylistDialog() {
+        androidx.appcompat.app.AlertDialog.Builder b = new androidx.appcompat.app.AlertDialog.Builder(this);
+        b.setTitle("Create playlist");
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setHint("Playlist name");
+        b.setView(input);
+        b.setPositiveButton("Create", (dlg, which) -> {
+            String name = input.getText().toString().trim();
+            if (name.isEmpty()) {
+                Toast.makeText(this, "Name required", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Playlist p = new Playlist(name);
+            // Offer song selection immediately after creation
+            playlists.add(p);
+            settingsManager.updatePlaylists(playlists);
+            if (playlistAdapter != null) playlistAdapter.notifyDataSetChanged();
+            // Show multi-select to add songs
+            showAddToPlaylistDialogForPlaylist(p);
+        });
+        b.setNegativeButton("Cancel", null);
+        b.show();
+    }
+
+    private void showAddToPlaylistDialogForCurrentSong() {
+        if (currentSongIndex < 0 || currentSongIndex >= songs.size()) {
+            Toast.makeText(this, "No song playing", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Song song = songs.get(currentSongIndex);
+        showSimplePlaylistPicker((p) -> {
+            if (p.containsSong(song.getPath())) {
+                Toast.makeText(this, "Already in playlist", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            p.addSong(song.getPath());
+            settingsManager.updatePlaylists(playlists);
+            Toast.makeText(this, "Added to " + p.getName(), Toast.LENGTH_SHORT).show();
+        });
+    }
+
+    private void showAddToPlaylistDialogForPlaylist(Playlist target) {
+        // Show a multi-select list of all songs to add to the target playlist
+        if (target == null) return;
+        String[] titles = new String[songs.size()];
+        boolean[] checked = new boolean[songs.size()];
+        for (int i = 0; i < songs.size(); i++) {
+            titles[i] = songs.get(i).getTitle();
+            checked[i] = target.containsSong(songs.get(i).getPath());
+        }
+        androidx.appcompat.app.AlertDialog.Builder b = new androidx.appcompat.app.AlertDialog.Builder(this);
+        b.setTitle("Add songs to " + target.getName());
+        b.setMultiChoiceItems(titles, checked, (dialog, which, isChecked) -> {
+            // nothing here, we'll read on positive
+        });
+        b.setPositiveButton("Add", (d, w) -> {
+            androidx.appcompat.app.AlertDialog ad = (androidx.appcompat.app.AlertDialog) d;
+            android.widget.ListView lv = ad.getListView();
+            for (int i = 0; i < lv.getCount(); i++) {
+                if (lv.isItemChecked(i)) {
+                    String path = songs.get(i).getPath();
+                    if (!target.containsSong(path)) target.addSong(path);
+                }
+            }
+            settingsManager.updatePlaylists(playlists);
+            Toast.makeText(this, "Updated " + target.getName(), Toast.LENGTH_SHORT).show();
+            // If currently viewing this playlist, refresh UI
+            if (currentPlaylistViewing != null && currentPlaylistViewing == target) showSongsForPlaylist(target);
+        });
+        b.setNegativeButton("Cancel", null);
+        b.show();
+    }
+
+    private void showPlaylistInPlaylistSection(Playlist p) {
+        if (p == null || playlistDetailView == null) return;
+        currentPlaylistViewing = p;
+        playlistDetailTitle.setText(p.getName());
+
+        // Build items from playlist paths
+        java.util.List<ListItem> items = new java.util.ArrayList<>();
+        for (int i = 0; i < p.getSongPaths().size(); i++) {
+            String path = p.getSongPaths().get(i);
+            int idx = findSongIndexByPath(path);
+            if (idx >= 0) items.add(ListItem.createSong(songs.get(idx), idx));
+        }
+
+        if (playlistSongsRecyclerView != null) {
+            // Build queue indices for this playlist
+            final java.util.List<Integer> queueIndices = new java.util.ArrayList<>();
+            for (int i = 0; i < p.getSongPaths().size(); i++) {
+                String path = p.getSongPaths().get(i);
+                int idx = findSongIndexByPath(path);
+                if (idx >= 0) queueIndices.add(idx);
+            }
+
+            SongAdapter sa = new SongAdapter(items);
+            sa.setOnItemClickListener((song, pos) -> startPlaybackWithQueue(pos, queueIndices));
+            sa.setOnItemLongClickListener((song, pos) -> {
+                new androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("Remove from playlist")
+                        .setMessage("Remove '" + song.getTitle() + "' from " + p.getName() + "?")
+                        .setPositiveButton("Remove", (d, w) -> {
+                            p.removeSong(song.getPath());
+                            settingsManager.updatePlaylists(playlists);
+                            showPlaylistInPlaylistSection(p);
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
+            });
+            playlistSongsRecyclerView.setAdapter(sa);
+        }
+
+        // Show detail view, hide list
+        if (playlistsRecyclerView != null) playlistsRecyclerView.setVisibility(View.GONE);
+        if (buttonCreatePlaylist != null) buttonCreatePlaylist.setVisibility(View.GONE);
+        playlistDetailView.setVisibility(View.VISIBLE);
+        // Ensure Playlists tab is visible
+        navigationRailView.setSelectedItemId(R.id.nav_playlists);
+        showSection(playlistsContainer);
+    }
+
+    private void showPlaylistListView() {
+        currentPlaylistViewing = null;
+        if (playlistDetailView != null) playlistDetailView.setVisibility(View.GONE);
+        if (playlistsRecyclerView != null) playlistsRecyclerView.setVisibility(View.VISIBLE);
+        if (buttonCreatePlaylist != null) buttonCreatePlaylist.setVisibility(View.VISIBLE);
+    }
+
+    private void showSimplePlaylistPicker(java.util.function.Consumer<Playlist> onPicked) {
+        if (playlists.isEmpty()) {
+            Toast.makeText(this, "No playlists", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String[] names = new String[playlists.size()];
+        for (int i = 0; i < playlists.size(); i++) names[i] = playlists.get(i).getName();
+        androidx.appcompat.app.AlertDialog.Builder b = new androidx.appcompat.app.AlertDialog.Builder(this);
+        b.setTitle("Choose playlist");
+        b.setItems(names, (dialog, which) -> {
+            Playlist p = playlists.get(which);
+            if (onPicked != null) onPicked.accept(p);
+        });
+        b.setNegativeButton("Cancel", null);
+        b.show();
+    }
+
+    private void showSongsForPlaylist(Playlist p) {
+        if (p == null) return;
+        currentPlaylistViewing = p;
+        // Build ListItem list
+        List<ListItem> items = new java.util.ArrayList<>();
+        for (int i = 0; i < p.getSongPaths().size(); i++) {
+            String path = p.getSongPaths().get(i);
+            int idx = findSongIndexByPath(path);
+            if (idx >= 0 && idx < songs.size()) {
+                items.add(ListItem.createSong(songs.get(idx), idx));
+            }
+        }
+        adapter = new SongAdapter(items);
+        recyclerView.setAdapter(adapter);
+        adapter.setOnItemClickListener((song, pos) -> startPlayback(pos));
+        adapter.setOnItemLongClickListener((song, pos) -> {
+            // remove from playlist
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Remove from playlist")
+                    .setMessage("Remove '" + song.getTitle() + "' from " + p.getName() + "?")
+                    .setPositiveButton("Remove", (d, w) -> {
+                        p.removeSong(song.getPath());
+                        settingsManager.updatePlaylists(playlists);
+                        showSongsForPlaylist(p);
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+        });
+        // Show add button in tracks header
+        if (playlistAddInTracks != null) playlistAddInTracks.setVisibility(View.VISIBLE);
+    }
+
+    private void restoreFullSongList() {
+        currentPlaylistViewing = null;
+        List<ListItem> listItems = buildListWithHeaders();
+        adapter = new SongAdapter(listItems);
+        recyclerView.setAdapter(adapter);
+        adapter.setOnItemClickListener((song, position) -> openSong(position));
+        adapter.setOnHeaderClickListener(this::showAlphabetPopup);
+        adapter.setOnItemLongClickListener((song, position) -> {});
+        if (playlistAddInTracks != null) playlistAddInTracks.setVisibility(View.GONE);
+    }
+
+    private int findSongIndexByPath(String path) {
+        if (path == null) return -1;
+        for (int i = 0; i < songs.size(); i++) {
+            if (path.equals(songs.get(i).getPath())) return i;
+        }
+        return -1;
+    }
+
+    private Playlist getFavoritesPlaylist() {
+        for (Playlist p : playlists) {
+            if ("Favorites".equalsIgnoreCase(p.getName())) return p;
+        }
+        // create if missing
+        Playlist fav = new Playlist("Favorites");
+        playlists.add(0, fav);
+        if (settingsManager != null) settingsManager.updatePlaylists(playlists);
+        if (playlistAdapter != null) playlistAdapter.notifyDataSetChanged();
+        return fav;
+    }
+
+    private void updateFavoriteButtonState() {
+        if (fullFavoriteButton == null) return;
+        if (currentSongIndex < 0 || currentSongIndex >= songs.size()) {
+            fullFavoriteButton.setImageResource(android.R.drawable.btn_star_big_off);
+            return;
+        }
+        Playlist fav = getFavoritesPlaylist();
+        String path = songs.get(currentSongIndex).getPath();
+        if (fav.containsSong(path)) {
+            fullFavoriteButton.setImageResource(android.R.drawable.btn_star_big_on);
+            try {
+                android.content.res.ColorStateList tint = android.content.res.ColorStateList.valueOf(android.graphics.Color.YELLOW);
+                fullFavoriteButton.setImageTintList(tint);
+            } catch (Exception ignored) {}
+        } else {
+            fullFavoriteButton.setImageResource(android.R.drawable.btn_star_big_off);
+            try {
+                if (currentTheme != null) {
+                    fullFavoriteButton.setImageTintList(android.content.res.ColorStateList.valueOf(currentTheme.onSurfaceColor));
+                } else {
+                    fullFavoriteButton.setImageTintList(null);
+                }
+            } catch (Exception ignored) {}
         }
     }
 
