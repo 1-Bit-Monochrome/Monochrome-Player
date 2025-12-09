@@ -16,6 +16,7 @@ import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.BitmapShader;
 import android.graphics.Shader;
@@ -148,6 +149,14 @@ public class MainActivity extends AppCompatActivity {
     private ImageButton fullPlayerClose;
     private ObjectAnimator fullArtworkAnimator;
     
+    private ir.mahozad.multiplatform.wavyslider.WavySlider miniSeekBar;
+    private ir.mahozad.multiplatform.wavyslider.WavySlider fullSeekBar;
+    
+    private TextView aboutSectionHeader;
+    private TextView aboutAppName;
+    private TextView aboutVersion;
+    private TextView aboutDescription;
+    private boolean isAboutExpanded = false;
     
     // Background views for theming
     private View mainContentView;
@@ -172,6 +181,23 @@ public class MainActivity extends AppCompatActivity {
     private final Runnable forwardSingleAction = () -> {
         forwardClickPending = false;
         seekBy(10_000);
+    };
+
+    private final Handler seekBarUpdateHandler = new Handler(Looper.getMainLooper());
+    private final Runnable seekBarUpdateRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+                int currentPos = mediaPlayer.getCurrentPosition();
+                int duration = mediaPlayer.getDuration();
+                if (duration > 0) {
+                    float progress = (float) currentPos / duration;
+                    if (miniSeekBar != null) miniSeekBar.setValue(progress);
+                    if (fullSeekBar != null) fullSeekBar.setValue(progress);
+                }
+            }
+            seekBarUpdateHandler.postDelayed(this, 100);
+        }
     };
 
     // Notification / media session
@@ -223,7 +249,15 @@ public class MainActivity extends AppCompatActivity {
         sortAlphabeticalBtn = findViewById(R.id.sort_alphabetical);
         sortDateAddedBtn = findViewById(R.id.sort_date_added);
         
-        // Initialize background views for theming
+        aboutSectionHeader = findViewById(R.id.about_section_header);
+        aboutAppName = findViewById(R.id.about_app_name);
+        aboutVersion = findViewById(R.id.about_version);
+        aboutDescription = findViewById(R.id.about_description);
+        
+        if (aboutSectionHeader != null) {
+            aboutSectionHeader.setOnClickListener(v -> toggleAboutSection());
+        }
+        
         mainContentView = findViewById(R.id.tracks_container);
         playerSheetCard = findViewById(R.id.player_sheet);
         
@@ -549,7 +583,6 @@ public class MainActivity extends AppCompatActivity {
     private void showAlphabetPopup() {
         if (alphabetPopupContainer == null || adapter == null) return;
         
-        // Get available letters from adapter
         java.util.Set<String> availableLetters = new java.util.HashSet<>();
         for (int i = 0; i < adapter.getItemCount(); i++) {
             ListItem item = adapter.getItemAtPosition(i);
@@ -560,7 +593,6 @@ public class MainActivity extends AppCompatActivity {
         
         if (availableLetters.isEmpty()) return;
         
-        // Clear and populate popup
         alphabetPopupContainer.removeAllViews();
         
         View popupView = getLayoutInflater().inflate(R.layout.alphabet_popup, alphabetPopupContainer, false);
@@ -575,7 +607,7 @@ public class MainActivity extends AppCompatActivity {
             letterView.setGravity(Gravity.CENTER);
             letterView.setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12));
             letterView.setTextSize(18f);
-            letterView.setTextColor(ContextCompat.getColor(this, R.color.player_control));
+            letterView.setTextColor(currentTheme != null ? currentTheme.accentColor : Color.WHITE);
             letterView.setTypeface(null, android.graphics.Typeface.BOLD);
             letterView.setClickable(true);
             letterView.setFocusable(true);
@@ -660,6 +692,20 @@ public class MainActivity extends AppCompatActivity {
         playPauseButton = findViewById(R.id.button_play_pause);
         forwardButton = findViewById(R.id.button_forward);
         repeatButton = findViewById(R.id.button_repeat);
+        miniSeekBar = findViewById(R.id.mini_wavy_seekbar);
+
+        if (miniSeekBar != null) {
+            miniSeekBar.setOnValueChangeListener((oldValue, newValue) -> {
+                if (mediaPlayer != null) {
+                    int duration = mediaPlayer.getDuration();
+                    if (duration > 0) {
+                        mediaPlayer.seekTo((int)(newValue * duration));
+                    }
+                }
+                return null;
+            });
+            miniSeekBar.setWaveAnimating(false);
+        }
 
         playerSheetBehavior = BottomSheetBehavior.from(playerSheet);
         playerSheetBehavior.setHideable(false);
@@ -726,6 +772,22 @@ public class MainActivity extends AppCompatActivity {
         fullPlayerSheet = findViewById(R.id.full_player_sheet);
         fullPlayerTitleView = findViewById(R.id.full_player_title);
         fullPlayerArtistView = findViewById(R.id.full_player_artist);
+        fullSeekBar = findViewById(R.id.full_wavy_seekbar);
+
+        if (fullSeekBar != null) {
+            fullSeekBar.setOnValueChangeListener((oldValue, newValue) -> {
+                if (mediaPlayer != null) {
+                    int duration = mediaPlayer.getDuration();
+                    if (duration > 0) {
+                        mediaPlayer.seekTo((int)(newValue * duration));
+                    }
+                }
+                return null;
+            });
+        }
+        if (fullSeekBar != null) {
+            fullSeekBar.setWaveAnimating(false);
+        }
         fullPlayerAlbumView = findViewById(R.id.full_player_album);
         fullArtworkView = findViewById(R.id.full_artwork_view);
         fullShuffleButton = findViewById(R.id.full_button_shuffle);
@@ -867,13 +929,17 @@ public class MainActivity extends AppCompatActivity {
                     // Update player sheet
                     applyThemeToPlayer();
                     
+                    // Reload artwork to apply theme-specific changes
+                    if (currentSongIndex >= 0 && currentSongIndex < songs.size()) {
+                        loadArtwork(songs.get(currentSongIndex));
+                    }
+                    
                     // Update all buttons in settings
                     updateSettingsButtonStates();
                     
-                    // Update header text colors in item_header.xml dynamically won't work, but we can update adapters
-                    if (adapter != null) adapter.notifyDataSetChanged();
-                    if (artistAdapter != null) artistAdapter.notifyDataSetChanged();
-                    if (albumAdapter != null) albumAdapter.notifyDataSetChanged();
+                    if (adapter != null) adapter.setTheme(currentTheme);
+                    if (artistAdapter != null) artistAdapter.setTheme(currentTheme);
+                    if (albumAdapter != null) albumAdapter.setTheme(currentTheme);
                     
                     // Fade back in
                     decorView.animate()
@@ -938,6 +1004,21 @@ public class MainActivity extends AppCompatActivity {
         applyControlButtonTint(fullBackButton);
         applyControlButtonTint(fullForwardButton);
         applyControlButtonTint(fullPlayerClose);
+        
+        if (miniSeekBar != null) {
+            miniSeekBar.setWaveColor(currentTheme.accentColor);
+            miniSeekBar.setActiveTrackColor(currentTheme.accentColor);
+            miniSeekBar.setInactiveTrackColor(currentTheme.surfaceColor);
+            miniSeekBar.setThumbColor(currentTheme.accentColor);
+        }
+        if (fullSeekBar != null) {
+            fullSeekBar.setWaveColor(currentTheme.accentColor);
+            fullSeekBar.setActiveTrackColor(currentTheme.accentColor);
+            fullSeekBar.setInactiveTrackColor(currentTheme.surfaceColor);
+            fullSeekBar.setThumbColor(currentTheme.accentColor);
+        }
+        
+        if (aboutSectionHeader != null) aboutSectionHeader.setTextColor(currentTheme.accentColor);
     }
 
     private Drawable loadWallpaperDrawable(String uriStr) {
@@ -1255,16 +1336,20 @@ public class MainActivity extends AppCompatActivity {
             mediaPlayer.setOnPreparedListener(mp -> {
                 mp.start();
                 updatePlayPauseIcon(true);
+                updateWaveAnimationState(true);
                 startArtworkSpin();
                 updateNotification(true);
+                seekBarUpdateHandler.post(seekBarUpdateRunnable);
             });
             mediaPlayer.setOnCompletionListener(mp -> {
                 if (isRepeatEnabled) {
                     mp.seekTo(0);
                     mp.start();
+                    updateWaveAnimationState(true);
                     startArtworkSpin();
                     updateNotification(true);
                 } else {
+                    updateWaveAnimationState(false);
                     playNextTrack();
                 }
             });
@@ -1272,6 +1357,7 @@ public class MainActivity extends AppCompatActivity {
         } catch (IOException e) {
             Toast.makeText(this, "Unable to play song", Toast.LENGTH_SHORT).show();
             updatePlayPauseIcon(false);
+            updateWaveAnimationState(false);
             updateNotification(false);
         }
     }
@@ -1281,12 +1367,16 @@ public class MainActivity extends AppCompatActivity {
         if (mediaPlayer.isPlaying()) {
             mediaPlayer.pause();
             updatePlayPauseIcon(false);
+            updateWaveAnimationState(false);
             pauseArtworkSpin();
+            seekBarUpdateHandler.removeCallbacks(seekBarUpdateRunnable);
             updateNotification(false);
         } else {
             mediaPlayer.start();
             updatePlayPauseIcon(true);
+            updateWaveAnimationState(true);
             startArtworkSpin();
+            seekBarUpdateHandler.post(seekBarUpdateRunnable);
             updateNotification(true);
         }
     }
@@ -1306,6 +1396,11 @@ public class MainActivity extends AppCompatActivity {
         updateControlTint(repeatButton, isRepeatEnabled);
         updateControlTint(fullRepeatButton, isRepeatEnabled);
         updateNotification(mediaPlayer != null && mediaPlayer.isPlaying());
+    }
+
+    private void updateWaveAnimationState(boolean playing) {
+        if (miniSeekBar != null) miniSeekBar.setWaveAnimating(playing);
+        if (fullSeekBar != null) fullSeekBar.setWaveAnimating(playing);
     }
 
     private void handleBackPress() {
@@ -1549,7 +1644,7 @@ public class MainActivity extends AppCompatActivity {
             letterView.setGravity(Gravity.CENTER);
             letterView.setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12));
             letterView.setTextSize(18f);
-            letterView.setTextColor(ContextCompat.getColor(this, R.color.player_control));
+            letterView.setTextColor(currentTheme != null ? currentTheme.accentColor : Color.WHITE);
             letterView.setTypeface(null, android.graphics.Typeface.BOLD);
             letterView.setClickable(true);
             letterView.setFocusable(true);
@@ -1794,11 +1889,12 @@ public class MainActivity extends AppCompatActivity {
             try {
                 mediaPlayer.stop();
             } catch (IllegalStateException ignored) {
-                // Player might not be prepared yet.
             }
             mediaPlayer.release();
             mediaPlayer = null;
         }
+        seekBarUpdateHandler.removeCallbacks(seekBarUpdateRunnable);
+        updateWaveAnimationState(false);
         if (artworkAnimator != null) {
             artworkAnimator.cancel();
         }
@@ -1846,6 +1942,13 @@ public class MainActivity extends AppCompatActivity {
         return Math.round(dp * density);
     }
 
+    private void toggleAboutSection() {
+        isAboutExpanded = !isAboutExpanded;
+        if (aboutAppName != null) aboutAppName.setVisibility(isAboutExpanded ? View.VISIBLE : View.GONE);
+        if (aboutVersion != null) aboutVersion.setVisibility(isAboutExpanded ? View.VISIBLE : View.GONE);
+        if (aboutDescription != null) aboutDescription.setVisibility(isAboutExpanded ? View.VISIBLE : View.GONE);
+    }
+
     private void showSection(View targetSection) {
         setSectionVisibility(nowPlayingContainer, false);
         setSectionVisibility(tracksContainer, targetSection == tracksContainer);
@@ -1853,6 +1956,10 @@ public class MainActivity extends AppCompatActivity {
         setSectionVisibility(playlistsContainer, targetSection == playlistsContainer);
         setSectionVisibility(albumsContainer, targetSection == albumsContainer);
         setSectionVisibility(settingsContainer, targetSection == settingsContainer);
+
+        if (playerSheet != null && currentSongIndex >= 0) {
+            playerSheet.setVisibility(View.VISIBLE);
+        }
 
         if (targetSection == tracksContainer) {
             if (songs.isEmpty()) {
@@ -1873,6 +1980,10 @@ public class MainActivity extends AppCompatActivity {
         setSectionVisibility(albumsContainer, false);
         setSectionVisibility(settingsContainer, false);
         hideEmptyState();
+        
+        if (playerSheet != null) {
+            playerSheet.setVisibility(View.GONE);
+        }
         
         if (fullPlayerSheet != null) {
             fullPlayerSheet.setVisibility(View.VISIBLE);

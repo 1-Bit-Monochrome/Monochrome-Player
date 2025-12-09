@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace = "com.monochrome.monochrome_player"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.monochrome.monochrome_player"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
@@ -42,6 +42,7 @@ dependencies {
     implementation("androidx.media:media:1.6.0")
     // RecyclerView is used to display the list of songs on the home screen
     implementation("androidx.recyclerview:recyclerview:1.3.1")
+    implementation("ir.mahozad.multiplatform:wavy-slider:2.2.0")
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)

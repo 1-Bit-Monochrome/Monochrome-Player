@@ -365,35 +365,45 @@
                 </LinearLayout>
 
                 <TextView
+                    android:id="@+id/about_section_header"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/settings_about_section"
                     android:textAppearance="?attr/textAppearanceTitleMedium"
                     android:textColor="@color/player_accent"
                     android:paddingTop="16dp"
-                    android:paddingBottom="8dp" />
+                    android:paddingBottom="8dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackground" />
 
                 <TextView
+                    android:id="@+id/about_app_name"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/app_name"
                     android:textAppearance="?attr/textAppearanceBodyLarge"
                     android:textStyle="bold"
-                    android:paddingBottom="4dp" />
+                    android:paddingBottom="4dp"
+                    android:visibility="gone" />
 
                 <TextView
+                    android:id="@+id/about_version"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/settings_version"
                     android:textAppearance="?attr/textAppearanceBodyMedium"
-                    android:paddingBottom="4dp" />
+                    android:paddingBottom="4dp"
+                    android:visibility="gone" />
 
                 <TextView
+                    android:id="@+id/about_description"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/settings_description"
                     android:textAppearance="?attr/textAppearanceBodySmall"
-                    android:textColor="?attr/colorOnSurfaceVariant" />
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:visibility="gone" />
 
             </LinearLayout>
 
@@ -538,6 +548,13 @@
                         android:textAppearance="?attr/textAppearanceBodySmall"
                         android:textColor="@color/player_accent" />
                 </LinearLayout>
+
+                <ir.mahozad.multiplatform.wavyslider.WavySlider
+                    android:id="@+id/mini_wavy_seekbar"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="8dp" />
 
                 <LinearLayout
                     android:id="@+id/player_controls"

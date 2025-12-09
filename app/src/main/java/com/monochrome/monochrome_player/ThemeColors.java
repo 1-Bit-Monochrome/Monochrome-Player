@@ -23,33 +23,32 @@ public class ThemeColors {
         
         switch (theme) {
             case SettingsManager.THEME_MONOCHROME:
-                colors.accentColor = Color.WHITE;
-                colors.backgroundColor = Color.BLACK;
-                colors.surfaceColor = 0xFF1A1A1A;
-                colors.onSurfaceColor = Color.WHITE;
-                colors.onSurfaceVariantColor = 0xFFB0B0B0;
-                colors.primaryColor = Color.WHITE;
-                colors.secondaryColor = 0xFF808080;
+                colors.accentColor = 0xFFE0E0E0;
+                colors.backgroundColor = 0xFF000000;
+                colors.surfaceColor = 0xFF0A0A0A;
+                colors.onSurfaceColor = 0xFFF5F5F5;
+                colors.onSurfaceVariantColor = 0xFFCCCCCC;
+                colors.primaryColor = 0xFFFFFFFF;
+                colors.secondaryColor = 0xFF7A7A7A;
                 break;
                 
             case SettingsManager.THEME_MATERIAL_YOU:
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    colors.accentColor = context.getColor(android.R.color.system_accent1_500);
+                    colors.accentColor = context.getColor(android.R.color.system_accent1_400);
                     colors.backgroundColor = context.getColor(android.R.color.system_neutral1_900);
-                    colors.surfaceColor = context.getColor(android.R.color.system_neutral1_800);
-                    colors.onSurfaceColor = context.getColor(android.R.color.system_neutral1_10);
-                    colors.onSurfaceVariantColor = context.getColor(android.R.color.system_neutral2_200);
-                    colors.primaryColor = context.getColor(android.R.color.system_accent1_400);
-                    colors.secondaryColor = context.getColor(android.R.color.system_accent2_400);
+                    colors.surfaceColor = context.getColor(android.R.color.system_neutral1_700);
+                    colors.onSurfaceColor = context.getColor(android.R.color.system_neutral1_50);
+                    colors.onSurfaceVariantColor = context.getColor(android.R.color.system_accent1_200);
+                    colors.primaryColor = context.getColor(android.R.color.system_accent1_300);
+                    colors.secondaryColor = context.getColor(android.R.color.system_accent2_300);
                 } else {
-                    // Fallback for older versions
-                    colors.accentColor = 0xFF2196F3;
-                    colors.backgroundColor = 0xFF0D47A1;
-                    colors.surfaceColor = 0xFF1565C0;
-                    colors.onSurfaceColor = Color.WHITE;
-                    colors.onSurfaceVariantColor = 0xFFBBDEFB;
-                    colors.primaryColor = 0xFF42A5F5;
-                    colors.secondaryColor = 0xFF64B5F6;
+                    colors.accentColor = 0xFF6EACDA;
+                    colors.backgroundColor = 0xFF1C1B1F;
+                    colors.surfaceColor = 0xFF2C2B2F;
+                    colors.onSurfaceColor = 0xFFE6E1E5;
+                    colors.onSurfaceVariantColor = 0xFFCAC4D0;
+                    colors.primaryColor = 0xFF8AB4F8;
+                    colors.secondaryColor = 0xFFD7BCFF;
                 }
                 break;
 
@@ -77,13 +76,13 @@ public class ThemeColors {
                 
             case SettingsManager.THEME_ANDROID:
             default:
-                colors.accentColor = 0xFF4ADE80;
-                colors.backgroundColor = 0xFF0F172A;
-                colors.surfaceColor = 0xFF111827;
-                colors.onSurfaceColor = 0xFFE5E7EB;
-                colors.onSurfaceVariantColor = 0xFF9CA3AF;
-                colors.primaryColor = 0xFF4ADE80;
-                colors.secondaryColor = 0xFF34D399;
+                colors.accentColor = 0xFF3DDC84;
+                colors.backgroundColor = 0xFF073042;
+                colors.surfaceColor = 0xFF0A4759;
+                colors.onSurfaceColor = 0xFFFFFFFF;
+                colors.onSurfaceVariantColor = 0xFFA8E6CF;
+                colors.primaryColor = 0xFF3DDC84;
+                colors.secondaryColor = 0xFF00D9A5;
                 break;
         }
         
