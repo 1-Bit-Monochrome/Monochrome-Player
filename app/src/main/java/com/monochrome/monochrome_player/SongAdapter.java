@@ -23,6 +23,10 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         void onHeaderClick();
     }
 
+    public interface OnItemLongClickListener {
+        void onItemLongClick(Song song, int position);
+    }
+
     public SongAdapter(List<ListItem> itemList) {
         this.itemList = itemList;
     }
@@ -85,6 +89,13 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 if (listener != null) {
                     listener.onItemClick(song, item.getPosition());
                 }
+            });
+            songHolder.itemView.setOnLongClickListener(v -> {
+                if (longClickListener != null) {
+                    longClickListener.onItemLongClick(song, item.getPosition());
+                    return true;
+                }
+                return false;
             });
         }
     }

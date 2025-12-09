@@ -23,14 +23,38 @@
         android:background="@drawable/bg_player_sheet"
         android:padding="24dp">
 
-        <ImageButton
-            android:id="@+id/full_player_close"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_gravity="end"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_menu_close_clear_cancel"
-            android:contentDescription="Close player" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="end"
+            android:paddingBottom="8dp">
+
+            <ImageButton
+                android:id="@+id/full_button_add_to_playlist"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_input_add"
+                android:contentDescription="@string/add_to_playlist" />
+
+            <ImageButton
+                android:id="@+id/full_button_favorite"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/btn_star_big_off"
+                android:contentDescription="@string/favorite" />
+
+            <ImageButton
+                android:id="@+id/full_player_close"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:contentDescription="Close player" />
+
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -137,6 +161,8 @@
                 android:layout_weight="1"
                 android:src="@android:drawable/ic_media_play"
                 android:contentDescription="@string/player_play_pause" />
+
+
 
             <ImageButton
                 android:id="@+id/full_button_forward"
