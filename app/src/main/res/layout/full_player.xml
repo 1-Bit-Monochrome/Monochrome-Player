@@ -41,8 +41,8 @@
 
             <com.google.android.material.imageview.ShapeableImageView
                 android:id="@+id/full_artwork_view"
-                android:layout_width="300dp"
-                android:layout_height="300dp"
+                android:layout_width="240dp"
+                android:layout_height="240dp"
                 android:scaleType="centerCrop"
                 android:contentDescription="@string/player_artwork_content_desc"
                 app:shapeAppearanceOverlay="@style/ShapeAppearance.MonochromePlayer.Circle"
@@ -94,6 +94,13 @@
                 android:textAppearance="?attr/textAppearanceBodyMedium"
                 android:textColor="@color/player_accent" />
         </LinearLayout>
+
+        <ir.mahozad.multiplatform.wavyslider.WavySlider
+            android:id="@+id/full_wavy_seekbar"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="12dp" />
 
         <LinearLayout
             android:id="@+id/full_player_controls"

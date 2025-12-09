@@ -12,6 +12,7 @@ public class GenericListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
 
     private List<ListItem> itemList;
     private OnItemClickListener listener;
+    private ThemeColors currentTheme;
 
     public interface OnItemClickListener {
         void onItemClick(ListItem item);
@@ -23,6 +24,11 @@ public class GenericListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
 
     public void setOnItemClickListener(OnItemClickListener listener) {
         this.listener = listener;
+    }
+
+    public void setTheme(ThemeColors theme) {
+        this.currentTheme = theme;
+        notifyDataSetChanged();
     }
 
     @Override
@@ -53,7 +59,11 @@ public class GenericListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
         ListItem item = itemList.get(position);
         
         if (holder instanceof HeaderViewHolder) {
-            ((HeaderViewHolder) holder).letterText.setText(item.getHeader());
+            HeaderViewHolder headerHolder = (HeaderViewHolder) holder;
+            headerHolder.letterText.setText(item.getHeader());
+            if (currentTheme != null) {
+                headerHolder.letterText.setTextColor(currentTheme.accentColor);
+            }
             holder.itemView.setOnClickListener(v -> {
                 if (listener != null) {
                     listener.onItemClick(item);

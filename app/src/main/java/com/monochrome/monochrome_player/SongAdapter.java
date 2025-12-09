@@ -13,6 +13,7 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private List<ListItem> itemList;
     private OnItemClickListener listener;
     private OnHeaderClickListener headerClickListener;
+    private ThemeColors currentTheme;
 
     public interface OnItemClickListener {
         void onItemClick(Song song, int position);
@@ -33,6 +34,11 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     public void setOnHeaderClickListener(OnHeaderClickListener listener) {
         this.headerClickListener = listener;
+    }
+
+    public void setTheme(ThemeColors theme) {
+        this.currentTheme = theme;
+        notifyDataSetChanged();
     }
 
     @Override
@@ -59,7 +65,11 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         ListItem item = itemList.get(position);
         
         if (holder instanceof HeaderViewHolder) {
-            ((HeaderViewHolder) holder).letterText.setText(item.getHeader());
+            HeaderViewHolder headerHolder = (HeaderViewHolder) holder;
+            headerHolder.letterText.setText(item.getHeader());
+            if (currentTheme != null) {
+                headerHolder.letterText.setTextColor(currentTheme.accentColor);
+            }
             holder.itemView.setOnClickListener(v -> {
                 if (headerClickListener != null) {
                     headerClickListener.onHeaderClick();
