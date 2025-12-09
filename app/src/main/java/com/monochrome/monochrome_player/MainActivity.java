@@ -28,6 +28,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.LinearInterpolator;
+import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -64,21 +65,37 @@ import java.util.Random;
 public class MainActivity extends AppCompatActivity {
 
     private final List<Song> songs = new ArrayList<>();
+    private final List<Artist> artists = new ArrayList<>();
+    private final List<Album> albums = new ArrayList<>();
     private SongAdapter adapter;
+    private GenericListAdapter artistAdapter;
+    private GenericListAdapter albumAdapter;
     private RecyclerView recyclerView;
+    private RecyclerView artistsRecyclerView;
+    private RecyclerView albumsRecyclerView;
     private TextView emptyView;
+    private TextView artistsEmptyView;
+    private TextView albumsEmptyView;
     private ActivityResultLauncher<String> requestPermissionLauncher;
     private View tracksContainer;
+    private View nowPlayingContainer;
+    private View artistsContainer;
     private View playlistsContainer;
     private View albumsContainer;
     private View settingsContainer;
     private NavigationRailView navigationRailView;
-    private ViewGroup alphabetScrollerContainer;
-    private View alphabetToggleButton;
-    private final char[] alphabetChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".toCharArray();
-    private boolean isAlphabetExpanded = false;
+    private ViewGroup alphabetPopupContainer;
+    private String currentArtistFilter = null;
+    private String currentAlbumFilter = null;
+    private SettingsManager settingsManager;
+    private ThemeColors currentTheme;
+    private com.google.android.material.button.MaterialButton themeAndroidBtn;
+    private com.google.android.material.button.MaterialButton themeMaterialYouBtn;
+    private com.google.android.material.button.MaterialButton themeMonochromeBtn;
+    private com.google.android.material.button.MaterialButton sortAlphabeticalBtn;
+    private com.google.android.material.button.MaterialButton sortDateAddedBtn;
 
-    // Player UI
+    // Player UI - Mini Player
     private View playerSheet;
     private View playerHeader;
     private TextView playerTitleView;
@@ -94,6 +111,24 @@ public class MainActivity extends AppCompatActivity {
     private BottomSheetBehavior<View> playerSheetBehavior;
     private ObjectAnimator artworkAnimator;
     private int collapsedPeekHeight = 0;
+
+    // Player UI - Full Player
+    private View fullPlayerSheet;
+    private TextView fullPlayerTitleView;
+    private TextView fullPlayerArtistView;
+    private TextView fullPlayerAlbumView;
+    private ShapeableImageView fullArtworkView;
+    private ImageButton fullShuffleButton;
+    private ImageButton fullBackButton;
+    private ImageButton fullPlayPauseButton;
+    private ImageButton fullForwardButton;
+    private ImageButton fullRepeatButton;
+    private ImageButton fullPlayerClose;
+    private ObjectAnimator fullArtworkAnimator;
+    
+    // Background views for theming
+    private View mainContentView;
+    private View playerSheetCard;
 
     // Playback
     private MediaPlayer mediaPlayer;
@@ -130,6 +165,11 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        
+        // Apply theme before setting content view
+        settingsManager = new SettingsManager(this);
+        applyThemeColors();
+        
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
@@ -140,28 +180,49 @@ public class MainActivity extends AppCompatActivity {
 
         navigationRailView = findViewById(R.id.navigation_rail);
         tracksContainer = findViewById(R.id.tracks_container);
+        nowPlayingContainer = findViewById(R.id.now_playing_container);
+        artistsContainer = findViewById(R.id.artists_container);
         playlistsContainer = findViewById(R.id.playlists_container);
         albumsContainer = findViewById(R.id.albums_container);
         settingsContainer = findViewById(R.id.settings_container);
-        alphabetScrollerContainer = findViewById(R.id.alphabet_scroller_container);
-        alphabetToggleButton = findViewById(R.id.alphabet_toggle_button);
+        alphabetPopupContainer = findViewById(R.id.alphabet_popup_container);
         
-        alphabetToggleButton.setOnClickListener(v -> toggleAlphabetScroller());
-        alphabetScrollerContainer.setOnClickListener(v -> toggleAlphabetScroller());
+        // Settings buttons
+        themeAndroidBtn = findViewById(R.id.theme_android);
+        themeMaterialYouBtn = findViewById(R.id.theme_material_you);
+        themeMonochromeBtn = findViewById(R.id.theme_monochrome);
+        sortAlphabeticalBtn = findViewById(R.id.sort_alphabetical);
+        sortDateAddedBtn = findViewById(R.id.sort_date_added);
+        
+        // Initialize background views for theming
+        mainContentView = findViewById(R.id.tracks_container);
+        playerSheetCard = findViewById(R.id.player_sheet);
+        
+        setupSettingsButtons();
 
-        // Initialize RecyclerView and adapter
+        // Initialize RecyclerViews
         recyclerView = findViewById(R.id.recycler_view);
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         recyclerView.setNestedScrollingEnabled(false);
-        adapter = new SongAdapter(songs);
-        recyclerView.setAdapter(adapter);
-        adapter.setOnItemClickListener((song, position) -> openSong(position));
+
+        artistsRecyclerView = findViewById(R.id.artists_recycler_view);
+        artistsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        artistsRecyclerView.setNestedScrollingEnabled(false);
+
+        albumsRecyclerView = findViewById(R.id.albums_recycler_view);
+        albumsRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        albumsRecyclerView.setNestedScrollingEnabled(false);
 
         emptyView = findViewById(R.id.empty_view);
+        artistsEmptyView = findViewById(R.id.artists_empty_view);
+        albumsEmptyView = findViewById(R.id.albums_empty_view);
+        
         requestPermissionLauncher =
                 registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
                     if (isGranted) {
                         loadSongs();
+                        loadArtists();
+                        loadAlbums();
                     } else {
                         showEmptyState(R.string.empty_state_no_permission);
                         Toast.makeText(this, "Permission denied. Cannot load songs.", Toast.LENGTH_SHORT).show();
@@ -176,8 +237,14 @@ public class MainActivity extends AppCompatActivity {
 
         navigationRailView.setOnItemSelectedListener(item -> {
             int itemId = item.getItemId();
-            if (itemId == R.id.nav_tracks) {
+            if (itemId == R.id.nav_now_playing) {
+                showNowPlaying();
+                return true;
+            } else if (itemId == R.id.nav_tracks) {
                 showSection(tracksContainer);
+                return true;
+            } else if (itemId == R.id.nav_artists) {
+                showSection(artistsContainer);
                 return true;
             } else if (itemId == R.id.nav_playlists) {
                 showSection(playlistsContainer);
@@ -200,6 +267,8 @@ public class MainActivity extends AppCompatActivity {
     private void checkPermissionsAndLoadSongs() {
         if (hasReadMediaPermission()) {
             loadSongs();
+            loadArtists();
+            loadAlbums();
         } else {
             String permission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ?
                     Manifest.permission.READ_MEDIA_AUDIO : Manifest.permission.READ_EXTERNAL_STORAGE;
@@ -227,24 +296,29 @@ public class MainActivity extends AppCompatActivity {
                 MediaStore.Audio.Media.ARTIST,
                 MediaStore.Audio.Media.ALBUM,
                 MediaStore.Audio.Media.DATA,
+                MediaStore.Audio.Media.DATE_ADDED,
                 MediaStore.Audio.Media.IS_MUSIC
         };
         String selection = MediaStore.Audio.Media.IS_MUSIC + " != 0";
+        String sortOrder = settingsManager.getSortMode().equals(SettingsManager.SORT_DATE_ADDED) 
+                ? MediaStore.Audio.Media.DATE_ADDED + " DESC"
+                : MediaStore.Audio.Media.TITLE + " ASC";
         Cursor cursor = null;
         try {
-            cursor = resolver.query(uri, projection, selection, null,
-                    MediaStore.Audio.Media.TITLE + " ASC");
+            cursor = resolver.query(uri, projection, selection, null, sortOrder);
             if (cursor != null) {
                 int titleIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE);
                 int artistIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST);
                 int albumIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM);
                 int dataIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA);
+                int dateIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED);
                 while (cursor.moveToNext()) {
                     String title = cursor.getString(titleIndex);
                     String artist = cursor.getString(artistIndex);
                     String album = cursor.getString(albumIndex);
                     String path = cursor.getString(dataIndex);
-                    songs.add(new Song(title, artist, album, path));
+                    long dateAdded = cursor.getLong(dateIndex);
+                    songs.add(new Song(title, artist, album, path, dateAdded));
                 }
             }
         } catch (SecurityException se) {
@@ -254,100 +328,136 @@ public class MainActivity extends AppCompatActivity {
                 cursor.close();
             }
         }
-        adapter.notifyDataSetChanged();
+        
+        List<ListItem> listItems = buildListWithHeaders();
+        adapter = new SongAdapter(listItems);
+        recyclerView.setAdapter(adapter);
+        adapter.setOnItemClickListener((song, position) -> openSong(position));
+        adapter.setOnHeaderClickListener(this::showAlphabetPopup);
+        
         if (songs.isEmpty()) {
             showEmptyState(R.string.empty_state_no_music);
         } else {
             hideEmptyState();
         }
-        setupAlphabetScroller();
         playerSheet.post(this::ensurePlayerSheetVisible);
     }
 
-    private void setupAlphabetScroller() {
-        if (alphabetScrollerContainer == null) return;
-        alphabetScrollerContainer.removeAllViews();
+    private List<ListItem> buildListWithHeaders() {
+        List<ListItem> items = new ArrayList<>();
+        if (songs.isEmpty()) {
+            return items;
+        }
         
-        java.util.Set<Character> availableLetters = new java.util.HashSet<>();
-        for (Song song : songs) {
-            String title = song.getTitle();
-            if (title != null && !title.isEmpty()) {
-                char firstChar = title.toUpperCase().charAt(0);
-                if (Character.isLetter(firstChar)) {
-                    availableLetters.add(firstChar);
+        boolean isSortedByDate = settingsManager.getSortMode().equals(SettingsManager.SORT_DATE_ADDED);
+        
+        if (isSortedByDate) {
+            // Group by month/year
+            String currentMonthYear = null;
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.getDefault());
+            
+            for (int i = 0; i < songs.size(); i++) {
+                Song song = songs.get(i);
+                String monthYear = sdf.format(new java.util.Date(song.getDateAdded() * 1000L));
+                
+                if (!monthYear.equals(currentMonthYear)) {
+                    currentMonthYear = monthYear;
+                    items.add(ListItem.createHeader(currentMonthYear));
                 }
+                items.add(ListItem.createSong(song, i));
+            }
+        } else {
+            // Group by first letter (A-Z)
+            String currentLetter = null;
+            for (int i = 0; i < songs.size(); i++) {
+                Song song = songs.get(i);
+                String title = song.getTitle();
+                if (title != null && !title.isEmpty()) {
+                    String firstLetter = title.substring(0, 1).toUpperCase();
+                    if (Character.isLetter(firstLetter.charAt(0))) {
+                        if (!firstLetter.equals(currentLetter)) {
+                            currentLetter = firstLetter;
+                            items.add(ListItem.createHeader(currentLetter));
+                        }
+                    }
+                }
+                items.add(ListItem.createSong(song, i));
+            }
+        }
+        return items;
+    }
+
+    private void showAlphabetPopup() {
+        if (alphabetPopupContainer == null || adapter == null) return;
+        
+        // Get available letters from adapter
+        java.util.Set<String> availableLetters = new java.util.HashSet<>();
+        for (int i = 0; i < adapter.getItemCount(); i++) {
+            ListItem item = adapter.getItemAtPosition(i);
+            if (item.getType() == ListItem.TYPE_HEADER) {
+                availableLetters.add(item.getHeader());
             }
         }
         
-        java.util.List<Character> sortedLetters = new java.util.ArrayList<>(availableLetters);
+        if (availableLetters.isEmpty()) return;
+        
+        // Clear and populate popup
+        alphabetPopupContainer.removeAllViews();
+        
+        View popupView = getLayoutInflater().inflate(R.layout.alphabet_popup, alphabetPopupContainer, false);
+        androidx.gridlayout.widget.GridLayout grid = popupView.findViewById(R.id.alphabet_grid);
+        
+        java.util.List<String> sortedLetters = new java.util.ArrayList<>(availableLetters);
         java.util.Collections.sort(sortedLetters);
         
-        if (sortedLetters.isEmpty()) {
-            if (alphabetToggleButton != null) {
-                alphabetToggleButton.setVisibility(View.GONE);
-            }
-            return;
-        }
-        
-        for (char c : sortedLetters) {
+        for (String letter : sortedLetters) {
             TextView letterView = new TextView(this);
-            letterView.setText(String.valueOf(c));
+            letterView.setText(letter);
             letterView.setGravity(Gravity.CENTER);
-            letterView.setPadding(4, 6, 4, 6);
-            letterView.setTextSize(14f);
+            letterView.setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12));
+            letterView.setTextSize(18f);
             letterView.setTextColor(ContextCompat.getColor(this, R.color.player_control));
-            letterView.setTextStyle(android.graphics.Typeface.BOLD);
-            letterView.setMinimumWidth(dpToPx(24));
+            letterView.setTypeface(null, android.graphics.Typeface.BOLD);
             letterView.setClickable(true);
             letterView.setFocusable(true);
             letterView.setBackground(ContextCompat.getDrawable(this, android.R.drawable.list_selector_background));
             
-            final String target = String.valueOf(c);
             letterView.setOnClickListener(v -> {
-                scrollToLetter(target);
-                toggleAlphabetScroller();
+                scrollToLetter(letter);
+                hideAlphabetPopup();
                 v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
             });
-            alphabetScrollerContainer.addView(letterView);
+            
+            grid.addView(letterView);
         }
         
-        if (alphabetToggleButton != null) {
-            alphabetToggleButton.setVisibility(View.VISIBLE);
-        }
+        alphabetPopupContainer.addView(popupView);
+        alphabetPopupContainer.setVisibility(View.VISIBLE);
+        alphabetPopupContainer.setAlpha(0f);
+        alphabetPopupContainer.animate().alpha(1f).setDuration(200).start();
+        
+        alphabetPopupContainer.setOnClickListener(v -> hideAlphabetPopup());
     }
     
-    private void toggleAlphabetScroller() {
-        if (alphabetScrollerContainer == null) return;
-        
-        isAlphabetExpanded = !isAlphabetExpanded;
-        
-        if (isAlphabetExpanded) {
-            alphabetScrollerContainer.setVisibility(View.VISIBLE);
-            if (alphabetToggleButton != null) {
-                alphabetToggleButton.setVisibility(View.GONE);
-            }
-        } else {
-            alphabetScrollerContainer.setVisibility(View.GONE);
-            if (alphabetToggleButton != null) {
-                alphabetToggleButton.setVisibility(View.VISIBLE);
-            }
-        }
+    private void hideAlphabetPopup() {
+        if (alphabetPopupContainer == null) return;
+        alphabetPopupContainer.animate().alpha(0f).setDuration(150)
+                .withEndAction(() -> {
+                    alphabetPopupContainer.setVisibility(View.GONE);
+                    alphabetPopupContainer.removeAllViews();
+                }).start();
     }
 
     private void scrollToLetter(String letter) {
-        if (recyclerView == null || songs.isEmpty()) return;
-        String target = letter.toUpperCase();
-        for (int i = 0; i < songs.size(); i++) {
-            String title = songs.get(i).getTitle();
-            if (title != null && !title.isEmpty()) {
-                String first = title.substring(0, 1).toUpperCase();
-                if (first.compareTo(target) >= 0) {
-                    recyclerView.scrollToPosition(i);
-                    return;
-                }
+        if (recyclerView == null || adapter == null || adapter.getItemCount() == 0) return;
+        
+        for (int i = 0; i < adapter.getItemCount(); i++) {
+            ListItem item = adapter.getItemAtPosition(i);
+            if (item.getType() == ListItem.TYPE_HEADER && letter.equals(item.getHeader())) {
+                recyclerView.scrollToPosition(i);
+                return;
             }
         }
-        recyclerView.scrollToPosition(songs.size() - 1);
     }
 
 
@@ -431,7 +541,16 @@ public class MainActivity extends AppCompatActivity {
         playerSheet.setOnClickListener(v -> togglePlayerSheet());
         playerHeader.setOnClickListener(v -> togglePlayerSheet());
         playerTitleView.setVisibility(View.VISIBLE);
-        playerArtistView.setOnClickListener(v -> {});
+        artworkView.setOnClickListener(v -> {
+            // Don't navigate if already on Now Playing
+            if (nowPlayingContainer != null && nowPlayingContainer.getVisibility() == View.VISIBLE) {
+                return;
+            }
+            navigationRailView.setSelectedItemId(R.id.nav_now_playing);
+            showNowPlaying();
+        });
+        playerArtistView.setOnClickListener(v -> openArtistView());
+        playerAlbumView.setOnClickListener(v -> openAlbumsView());
 
         shuffleButton.setOnClickListener(v -> toggleShuffle());
         backButton.setOnClickListener(v -> handleBackPress());
@@ -440,6 +559,247 @@ public class MainActivity extends AppCompatActivity {
         repeatButton.setOnClickListener(v -> toggleRepeat());
         updateControlTint(shuffleButton, false);
         updateControlTint(repeatButton, false);
+
+        setupFullPlayer();
+    }
+
+    private void setupFullPlayer() {
+        fullPlayerSheet = findViewById(R.id.full_player_sheet);
+        fullPlayerTitleView = findViewById(R.id.full_player_title);
+        fullPlayerArtistView = findViewById(R.id.full_player_artist);
+        fullPlayerAlbumView = findViewById(R.id.full_player_album);
+        fullArtworkView = findViewById(R.id.full_artwork_view);
+        fullShuffleButton = findViewById(R.id.full_button_shuffle);
+        fullBackButton = findViewById(R.id.full_button_back);
+        fullPlayPauseButton = findViewById(R.id.full_button_play_pause);
+        fullForwardButton = findViewById(R.id.full_button_forward);
+        fullRepeatButton = findViewById(R.id.full_button_repeat);
+        fullPlayerClose = findViewById(R.id.full_player_close);
+
+        fullPlayerArtistView.setOnClickListener(v -> openArtistView());
+        fullPlayerAlbumView.setOnClickListener(v -> openAlbumsView());
+        fullPlayerClose.setOnClickListener(v -> {
+            navigationRailView.setSelectedItemId(R.id.nav_tracks);
+            showSection(tracksContainer);
+        });
+        fullShuffleButton.setOnClickListener(v -> toggleShuffle());
+        fullBackButton.setOnClickListener(v -> handleBackPress());
+        fullPlayPauseButton.setOnClickListener(v -> togglePlayPause());
+        fullForwardButton.setOnClickListener(v -> handleForwardPress());
+        fullRepeatButton.setOnClickListener(v -> toggleRepeat());
+
+        updateControlTint(fullShuffleButton, false);
+        updateControlTint(fullRepeatButton, false);
+    }
+
+    private void setupSettingsButtons() {
+        updateSettingsButtonStates();
+        
+        themeAndroidBtn.setOnClickListener(v -> {
+            settingsManager.setTheme(SettingsManager.THEME_ANDROID);
+            applyThemeDynamically();
+            updateSettingsButtonStates();
+        });
+        
+        themeMaterialYouBtn.setOnClickListener(v -> {
+            settingsManager.setTheme(SettingsManager.THEME_MATERIAL_YOU);
+            applyThemeDynamically();
+            updateSettingsButtonStates();
+        });
+        
+        themeMonochromeBtn.setOnClickListener(v -> {
+            settingsManager.setTheme(SettingsManager.THEME_MONOCHROME);
+            applyThemeDynamically();
+            updateSettingsButtonStates();
+        });
+        
+        sortAlphabeticalBtn.setOnClickListener(v -> {
+            settingsManager.setSortMode(SettingsManager.SORT_ALPHABETICAL);
+            reloadSongs();
+            updateSettingsButtonStates();
+        });
+        
+        sortDateAddedBtn.setOnClickListener(v -> {
+            settingsManager.setSortMode(SettingsManager.SORT_DATE_ADDED);
+            reloadSongs();
+            updateSettingsButtonStates();
+        });
+    }
+    
+    private void updateSettingsButtonStates() {
+        String currentThemeStr = settingsManager.getTheme();
+        
+        // Style active/inactive theme buttons
+        styleSettingsButton(themeAndroidBtn, currentThemeStr.equals(SettingsManager.THEME_ANDROID));
+        styleSettingsButton(themeMaterialYouBtn, currentThemeStr.equals(SettingsManager.THEME_MATERIAL_YOU));
+        styleSettingsButton(themeMonochromeBtn, currentThemeStr.equals(SettingsManager.THEME_MONOCHROME));
+        
+        String currentSort = settingsManager.getSortMode();
+        styleSettingsButton(sortAlphabeticalBtn, currentSort.equals(SettingsManager.SORT_ALPHABETICAL));
+        styleSettingsButton(sortDateAddedBtn, currentSort.equals(SettingsManager.SORT_DATE_ADDED));
+    }
+    
+    private void styleSettingsButton(com.google.android.material.button.MaterialButton button, boolean isActive) {
+        if (button == null || currentTheme == null) return;
+        
+        if (isActive) {
+            button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(currentTheme.accentColor));
+            button.setTextColor(currentTheme.onSurfaceColor);
+            button.setAlpha(1.0f);
+            button.setStrokeWidth(0);
+        } else {
+            button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(currentTheme.surfaceColor));
+            button.setTextColor(currentTheme.onSurfaceVariantColor);
+            button.setStrokeColor(android.content.res.ColorStateList.valueOf(currentTheme.onSurfaceVariantColor));
+            button.setStrokeWidth(2);
+            button.setAlpha(0.8f);
+        }
+    }
+    
+    private void applyThemeDynamically() {
+        currentTheme = ThemeColors.getThemeColors(this, settingsManager.getTheme());
+        
+        // Fade out slightly before applying theme
+        View decorView = getWindow().getDecorView();
+        decorView.animate()
+                .alpha(0.85f)
+                .setDuration(100)
+                .withEndAction(() -> {
+                    // Apply theme changes
+                    android.view.Window window = getWindow();
+                    window.setStatusBarColor(currentTheme.backgroundColor);
+                    window.setNavigationBarColor(currentTheme.backgroundColor);
+                    
+                    // Update navigation rail
+                    if (navigationRailView != null) {
+                        navigationRailView.setItemActiveIndicatorColor(android.content.res.ColorStateList.valueOf(currentTheme.accentColor));
+                        navigationRailView.setItemIconTintList(android.content.res.ColorStateList.valueOf(currentTheme.onSurfaceVariantColor));
+                        navigationRailView.setItemTextColor(android.content.res.ColorStateList.valueOf(currentTheme.onSurfaceVariantColor));
+                    }
+                    
+                    // Update player sheet
+                    applyThemeToPlayer();
+                    
+                    // Update all buttons in settings
+                    updateSettingsButtonStates();
+                    
+                    // Update header text colors in item_header.xml dynamically won't work, but we can update adapters
+                    if (adapter != null) adapter.notifyDataSetChanged();
+                    if (artistAdapter != null) artistAdapter.notifyDataSetChanged();
+                    if (albumAdapter != null) albumAdapter.notifyDataSetChanged();
+                    
+                    // Fade back in
+                    decorView.animate()
+                            .alpha(1.0f)
+                            .setDuration(200)
+                            .start();
+                })
+                .start();
+    }
+    
+    private void applyThemeToPlayer() {
+        if (currentTheme == null) return;
+        
+        // Update backgrounds
+        if (mainContentView != null) mainContentView.setBackgroundColor(currentTheme.backgroundColor);
+        if (playerSheetCard != null) playerSheetCard.setBackgroundColor(currentTheme.surfaceColor);
+        if (fullPlayerSheet != null) fullPlayerSheet.setBackgroundColor(currentTheme.surfaceColor);
+        
+        // Update player controls tint
+        updateControlTint(shuffleButton, isShuffleEnabled);
+        updateControlTint(repeatButton, isRepeatEnabled);
+        updateControlTint(fullShuffleButton, isShuffleEnabled);
+        updateControlTint(fullRepeatButton, isRepeatEnabled);
+        
+        // Update mini player text colors
+        if (playerTitleView != null) playerTitleView.setTextColor(currentTheme.onSurfaceColor);
+        if (collapsedTitleView != null) collapsedTitleView.setTextColor(currentTheme.onSurfaceColor);
+        if (playerArtistView != null) playerArtistView.setTextColor(currentTheme.accentColor);
+        if (playerAlbumView != null) playerAlbumView.setTextColor(currentTheme.accentColor);
+        
+        // Update full player text colors
+        if (fullPlayerTitleView != null) fullPlayerTitleView.setTextColor(currentTheme.onSurfaceColor);
+        if (fullPlayerArtistView != null) fullPlayerArtistView.setTextColor(currentTheme.accentColor);
+        if (fullPlayerAlbumView != null) fullPlayerAlbumView.setTextColor(currentTheme.accentColor);
+        
+        // Update control button tints
+        applyControlButtonTint(playPauseButton);
+        applyControlButtonTint(backButton);
+        applyControlButtonTint(forwardButton);
+        applyControlButtonTint(fullPlayPauseButton);
+        applyControlButtonTint(fullBackButton);
+        applyControlButtonTint(fullForwardButton);
+        applyControlButtonTint(fullPlayerClose);
+    }
+    
+    private void applyControlButtonTint(ImageButton button) {
+        if (button != null && currentTheme != null) {
+            button.setColorFilter(currentTheme.onSurfaceColor);
+        }
+    }
+    
+    private void applyThemeColors() {
+        currentTheme = ThemeColors.getThemeColors(this, settingsManager.getTheme());
+        applyThemeDynamically();
+    }
+    
+    private void reloadSongs() {
+        if (hasReadMediaPermission()) {
+            loadSongs();
+        }
+    }
+
+    private void syncFullPlayerState() {
+        if (currentSongIndex < 0 || currentSongIndex >= songs.size()) return;
+        Song song = songs.get(currentSongIndex);
+        
+        fullPlayerTitleView.setText(song.getTitle());
+        fullPlayerArtistView.setText(song.getArtist() == null || song.getArtist().isEmpty() 
+                ? getString(R.string.player_artist_unknown) : song.getArtist());
+        fullPlayerAlbumView.setText(song.getAlbum() == null || song.getAlbum().isEmpty() 
+                ? getString(R.string.player_album_unknown) : song.getAlbum());
+        
+        // Sync artwork
+        if (artworkView.getDrawable() != null) {
+            fullArtworkView.setImageDrawable(artworkView.getDrawable());
+        }
+        
+        // Sync play/pause state
+        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+            fullPlayPauseButton.setImageResource(android.R.drawable.ic_media_pause);
+        } else {
+            fullPlayPauseButton.setImageResource(android.R.drawable.ic_media_play);
+        }
+        
+        // Sync shuffle/repeat states
+        updateControlTint(fullShuffleButton, isShuffleEnabled);
+        updateControlTint(fullRepeatButton, isRepeatEnabled);
+    }
+
+    private void openArtistView() {
+        if (currentSongIndex < 0 || currentSongIndex >= songs.size()) return;
+        String artist = songs.get(currentSongIndex).getArtist();
+        if (artist == null || artist.isEmpty()) {
+            Toast.makeText(this, "Unknown artist", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        currentArtistFilter = artist;
+        navigationRailView.setSelectedItemId(R.id.nav_artists);
+        showSection(artistsContainer);
+    }
+
+    private void openAlbumsView() {
+        if (currentSongIndex < 0 || currentSongIndex >= songs.size()) return;
+        String album = songs.get(currentSongIndex).getAlbum();
+        if (album == null || album.isEmpty()) {
+            Toast.makeText(this, "Unknown album", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        currentAlbumFilter = album;
+        navigationRailView.setSelectedItemId(R.id.nav_albums);
+        showSection(albumsContainer);
     }
 
     private void updateCollapsedPeekHeight() {
@@ -549,6 +909,7 @@ public class MainActivity extends AppCompatActivity {
     private void toggleShuffle() {
         isShuffleEnabled = !isShuffleEnabled;
         updateControlTint(shuffleButton, isShuffleEnabled);
+        updateControlTint(fullShuffleButton, isShuffleEnabled);
         if (isShuffleEnabled) {
             playRandomTrack();
         }
@@ -558,6 +919,7 @@ public class MainActivity extends AppCompatActivity {
     private void toggleRepeat() {
         isRepeatEnabled = !isRepeatEnabled;
         updateControlTint(repeatButton, isRepeatEnabled);
+        updateControlTint(fullRepeatButton, isRepeatEnabled);
         updateNotification(mediaPlayer != null && mediaPlayer.isPlaying());
     }
 
@@ -638,12 +1000,201 @@ public class MainActivity extends AppCompatActivity {
     private void updatePlayPauseIcon(boolean isPlaying) {
         if (playPauseButton == null) return;
         playPauseButton.setImageResource(isPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play);
+        if (fullPlayPauseButton != null) {
+            fullPlayPauseButton.setImageResource(isPlaying ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play);
+        }
     }
 
     private void updateControlTint(ImageButton button, boolean active) {
         if (button == null) return;
         int color = ContextCompat.getColor(this, active ? R.color.player_accent : R.color.player_control);
         button.setColorFilter(color);
+    }
+
+    private void loadArtists() {
+        artists.clear();
+        java.util.Map<String, Integer> artistCount = new java.util.HashMap<>();
+        
+        for (Song song : songs) {
+            String artist = song.getArtist();
+            if (artist == null || artist.isEmpty()) {
+                artist = getString(R.string.player_artist_unknown);
+            }
+            artistCount.put(artist, artistCount.getOrDefault(artist, 0) + 1);
+        }
+        
+        for (java.util.Map.Entry<String, Integer> entry : artistCount.entrySet()) {
+            artists.add(new Artist(entry.getKey(), entry.getValue()));
+        }
+        
+        artists.sort((a1, a2) -> a1.getName().compareToIgnoreCase(a2.getName()));
+        
+        List<ListItem> listItems = buildArtistListWithHeaders();
+        artistAdapter = new GenericListAdapter(listItems);
+        artistsRecyclerView.setAdapter(artistAdapter);
+        artistAdapter.setOnItemClickListener(item -> {
+            if (item.getType() == ListItem.TYPE_HEADER) {
+                showAlphabetPopupForArtists();
+            } else if (item.getType() == ListItem.TYPE_ARTIST) {
+                // Future: Open artist detail view with songs
+                Toast.makeText(this, "Artist: " + item.getArtist().getName(), Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private List<ListItem> buildArtistListWithHeaders() {
+        List<ListItem> items = new ArrayList<>();
+        if (artists.isEmpty()) return items;
+        
+        String currentLetter = null;
+        for (int i = 0; i < artists.size(); i++) {
+            Artist artist = artists.get(i);
+            String name = artist.getName();
+            if (name != null && !name.isEmpty()) {
+                String firstLetter = name.substring(0, 1).toUpperCase();
+                if (Character.isLetter(firstLetter.charAt(0))) {
+                    if (!firstLetter.equals(currentLetter)) {
+                        currentLetter = firstLetter;
+                        items.add(ListItem.createHeader(currentLetter));
+                    }
+                }
+            }
+            items.add(ListItem.createArtist(artist, i));
+        }
+        return items;
+    }
+
+    private void showAlphabetPopupForArtists() {
+        // Similar to songs alphabet popup but for artists
+        showGenericAlphabetPopup(artistAdapter, artistsRecyclerView);
+    }
+
+    private void loadAlbums() {
+        albums.clear();
+        java.util.Map<String, java.util.Map.Entry<String, Integer>> albumInfo = new java.util.HashMap<>();
+        
+        for (Song song : songs) {
+            String album = song.getAlbum();
+            if (album == null || album.isEmpty()) {
+                album = getString(R.string.player_album_unknown);
+            }
+            String artist = song.getArtist();
+            if (artist == null || artist.isEmpty()) {
+                artist = getString(R.string.player_artist_unknown);
+            }
+            
+            if (albumInfo.containsKey(album)) {
+                java.util.Map.Entry<String, Integer> entry = albumInfo.get(album);
+                albumInfo.put(album, new java.util.AbstractMap.SimpleEntry<>(entry.getKey(), entry.getValue() + 1));
+            } else {
+                albumInfo.put(album, new java.util.AbstractMap.SimpleEntry<>(artist, 1));
+            }
+        }
+        
+        for (java.util.Map.Entry<String, java.util.Map.Entry<String, Integer>> entry : albumInfo.entrySet()) {
+            albums.add(new Album(entry.getKey(), entry.getValue().getKey(), entry.getValue().getValue()));
+        }
+        
+        albums.sort((a1, a2) -> a1.getName().compareToIgnoreCase(a2.getName()));
+        
+        List<ListItem> listItems = buildAlbumListWithHeaders();
+        albumAdapter = new GenericListAdapter(listItems);
+        albumsRecyclerView.setAdapter(albumAdapter);
+        albumAdapter.setOnItemClickListener(item -> {
+            if (item.getType() == ListItem.TYPE_HEADER) {
+                showAlphabetPopupForAlbums();
+            } else if (item.getType() == ListItem.TYPE_ALBUM) {
+                // Future: Open album detail view with songs
+                Toast.makeText(this, "Album: " + item.getAlbum().getName(), Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private List<ListItem> buildAlbumListWithHeaders() {
+        List<ListItem> items = new ArrayList<>();
+        if (albums.isEmpty()) return items;
+        
+        String currentLetter = null;
+        for (int i = 0; i < albums.size(); i++) {
+            Album album = albums.get(i);
+            String name = album.getName();
+            if (name != null && !name.isEmpty()) {
+                String firstLetter = name.substring(0, 1).toUpperCase();
+                if (Character.isLetter(firstLetter.charAt(0))) {
+                    if (!firstLetter.equals(currentLetter)) {
+                        currentLetter = firstLetter;
+                        items.add(ListItem.createHeader(currentLetter));
+                    }
+                }
+            }
+            items.add(ListItem.createAlbum(album, i));
+        }
+        return items;
+    }
+
+    private void showAlphabetPopupForAlbums() {
+        showGenericAlphabetPopup(albumAdapter, albumsRecyclerView);
+    }
+
+    private void showGenericAlphabetPopup(GenericListAdapter adapter, RecyclerView targetRecyclerView) {
+        if (alphabetPopupContainer == null || adapter == null) return;
+        
+        java.util.Set<String> availableLetters = new java.util.HashSet<>();
+        for (int i = 0; i < adapter.getItemCount(); i++) {
+            ListItem item = adapter.getItemAtPosition(i);
+            if (item.getType() == ListItem.TYPE_HEADER) {
+                availableLetters.add(item.getHeader());
+            }
+        }
+        
+        if (availableLetters.isEmpty()) return;
+        
+        alphabetPopupContainer.removeAllViews();
+        View popupView = getLayoutInflater().inflate(R.layout.alphabet_popup, alphabetPopupContainer, false);
+        androidx.gridlayout.widget.GridLayout grid = popupView.findViewById(R.id.alphabet_grid);
+        
+        java.util.List<String> sortedLetters = new java.util.ArrayList<>(availableLetters);
+        java.util.Collections.sort(sortedLetters);
+        
+        for (String letter : sortedLetters) {
+            TextView letterView = new TextView(this);
+            letterView.setText(letter);
+            letterView.setGravity(Gravity.CENTER);
+            letterView.setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12));
+            letterView.setTextSize(18f);
+            letterView.setTextColor(ContextCompat.getColor(this, R.color.player_control));
+            letterView.setTypeface(null, android.graphics.Typeface.BOLD);
+            letterView.setClickable(true);
+            letterView.setFocusable(true);
+            letterView.setBackground(ContextCompat.getDrawable(this, android.R.drawable.list_selector_background));
+            
+            letterView.setOnClickListener(v -> {
+                scrollToLetterInAdapter(letter, adapter, targetRecyclerView);
+                hideAlphabetPopup();
+                v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+            });
+            
+            grid.addView(letterView);
+        }
+        
+        alphabetPopupContainer.addView(popupView);
+        alphabetPopupContainer.setVisibility(View.VISIBLE);
+        alphabetPopupContainer.setAlpha(0f);
+        alphabetPopupContainer.animate().alpha(1f).setDuration(200).start();
+        
+        alphabetPopupContainer.setOnClickListener(v -> hideAlphabetPopup());
+    }
+
+    private void scrollToLetterInAdapter(String letter, GenericListAdapter adapter, RecyclerView recyclerView) {
+        if (recyclerView == null || adapter == null || adapter.getItemCount() == 0) return;
+        
+        for (int i = 0; i < adapter.getItemCount(); i++) {
+            ListItem item = adapter.getItemAtPosition(i);
+            if (item.getType() == ListItem.TYPE_HEADER && letter.equals(item.getHeader())) {
+                recyclerView.scrollToPosition(i);
+                return;
+            }
+        }
     }
 
     private void setupMediaSessionAndNotifications() {
@@ -781,8 +1332,19 @@ public class MainActivity extends AppCompatActivity {
         }
         if (bitmap != null) {
             artworkView.setImageBitmap(bitmap);
+            if (fullArtworkView != null) {
+                fullArtworkView.setImageBitmap(bitmap);
+            }
         } else {
             artworkView.setImageResource(R.mipmap.ic_launcher);
+            if (fullArtworkView != null) {
+                fullArtworkView.setImageResource(R.mipmap.ic_launcher);
+            }
+        }
+        
+        // Sync full player if it's open
+        if (fullPlayerSheet != null && fullPlayerSheet.getVisibility() == View.VISIBLE) {
+            syncFullPlayerState();
         }
     }
 
@@ -799,11 +1361,29 @@ public class MainActivity extends AppCompatActivity {
         } else if (!artworkAnimator.isRunning()) {
             artworkAnimator.start();
         }
+        
+        // Also spin full player artwork
+        if (fullArtworkView != null) {
+            if (fullArtworkAnimator == null) {
+                fullArtworkAnimator = ObjectAnimator.ofFloat(fullArtworkView, View.ROTATION, 0f, 360f);
+                fullArtworkAnimator.setDuration(12000);
+                fullArtworkAnimator.setInterpolator(new LinearInterpolator());
+                fullArtworkAnimator.setRepeatCount(ValueAnimator.INFINITE);
+            }
+            if (fullArtworkAnimator.isPaused()) {
+                fullArtworkAnimator.resume();
+            } else if (!fullArtworkAnimator.isRunning()) {
+                fullArtworkAnimator.start();
+            }
+        }
     }
 
     private void pauseArtworkSpin() {
         if (artworkAnimator != null && artworkAnimator.isRunning()) {
             artworkAnimator.pause();
+        }
+        if (fullArtworkAnimator != null && fullArtworkAnimator.isRunning()) {
+            fullArtworkAnimator.pause();
         }
     }
 
@@ -865,7 +1445,9 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showSection(View targetSection) {
+        setSectionVisibility(nowPlayingContainer, false);
         setSectionVisibility(tracksContainer, targetSection == tracksContainer);
+        setSectionVisibility(artistsContainer, targetSection == artistsContainer);
         setSectionVisibility(playlistsContainer, targetSection == playlistsContainer);
         setSectionVisibility(albumsContainer, targetSection == albumsContainer);
         setSectionVisibility(settingsContainer, targetSection == settingsContainer);
@@ -876,24 +1458,44 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 hideEmptyState();
             }
-            if (alphabetToggleButton != null && !songs.isEmpty()) {
-                alphabetToggleButton.setVisibility(View.VISIBLE);
-            }
         } else {
             hideEmptyState();
-            if (alphabetToggleButton != null) {
-                alphabetToggleButton.setVisibility(View.GONE);
-            }
-            if (alphabetScrollerContainer != null) {
-                alphabetScrollerContainer.setVisibility(View.GONE);
-                isAlphabetExpanded = false;
-            }
+        }
+    }
+    
+    private void showNowPlaying() {
+        setSectionVisibility(nowPlayingContainer, true);
+        setSectionVisibility(tracksContainer, false);
+        setSectionVisibility(artistsContainer, false);
+        setSectionVisibility(playlistsContainer, false);
+        setSectionVisibility(albumsContainer, false);
+        setSectionVisibility(settingsContainer, false);
+        hideEmptyState();
+        
+        if (fullPlayerSheet != null) {
+            fullPlayerSheet.setVisibility(View.VISIBLE);
+            syncFullPlayerState();
         }
     }
 
     private void setSectionVisibility(View section, boolean visible) {
         if (section != null) {
-            section.setVisibility(visible ? View.VISIBLE : View.GONE);
+            if (visible) {
+                section.setAlpha(0f);
+                section.setVisibility(View.VISIBLE);
+                section.animate()
+                        .alpha(1f)
+                        .setDuration(200)
+                        .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                        .start();
+            } else {
+                section.animate()
+                        .alpha(0f)
+                        .setDuration(150)
+                        .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                        .withEndAction(() -> section.setVisibility(View.GONE))
+                        .start();
+            }
         }
     }
 
