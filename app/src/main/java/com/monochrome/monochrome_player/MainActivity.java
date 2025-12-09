@@ -15,6 +15,12 @@ import android.content.IntentFilter;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.BitmapShader;
+import android.graphics.Shader;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaPlayer;
 import android.net.Uri;
@@ -29,6 +35,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.LinearInterpolator;
 import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.LinearLayout;
 import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -37,6 +45,7 @@ import android.view.HapticFeedbackConstants;
 import androidx.activity.EdgeToEdge;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.documentfile.provider.DocumentFile;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.annotation.NonNull;
 import androidx.annotation.StringRes;
@@ -56,6 +65,7 @@ import android.support.v4.media.session.MediaSessionCompat;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.imageview.ShapeableImageView;
 import com.google.android.material.navigationrail.NavigationRailView;
+
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -77,6 +87,8 @@ public class MainActivity extends AppCompatActivity {
     private TextView artistsEmptyView;
     private TextView albumsEmptyView;
     private ActivityResultLauncher<String> requestPermissionLauncher;
+    private ActivityResultLauncher<String> wallpaperPickerLauncher;
+    private ActivityResultLauncher<Uri> folderPickerLauncher;
     private View tracksContainer;
     private View nowPlayingContainer;
     private View artistsContainer;
@@ -92,8 +104,17 @@ public class MainActivity extends AppCompatActivity {
     private com.google.android.material.button.MaterialButton themeAndroidBtn;
     private com.google.android.material.button.MaterialButton themeMaterialYouBtn;
     private com.google.android.material.button.MaterialButton themeMonochromeBtn;
+    private com.google.android.material.button.MaterialButton themeBozkurtBtn;
+    private com.google.android.material.button.MaterialButton themeMechaBtn;
+    private com.google.android.material.button.MaterialButton chooseWallpaperBtn;
+    private com.google.android.material.button.MaterialButton clearWallpaperBtn;
     private com.google.android.material.button.MaterialButton sortAlphabeticalBtn;
     private com.google.android.material.button.MaterialButton sortDateAddedBtn;
+    private CheckBox includeDownloadsCheckbox;
+    private CheckBox includeDocumentsCheckbox;
+    private CheckBox includeMusicCheckbox;
+    private com.google.android.material.button.MaterialButton buttonAddFolder;
+    private LinearLayout folderListContainerView;
 
     // Player UI - Mini Player
     private View playerSheet;
@@ -108,6 +129,7 @@ public class MainActivity extends AppCompatActivity {
     private ImageButton playPauseButton;
     private ImageButton forwardButton;
     private ImageButton repeatButton;
+    
     private BottomSheetBehavior<View> playerSheetBehavior;
     private ObjectAnimator artworkAnimator;
     private int collapsedPeekHeight = 0;
@@ -125,6 +147,7 @@ public class MainActivity extends AppCompatActivity {
     private ImageButton fullRepeatButton;
     private ImageButton fullPlayerClose;
     private ObjectAnimator fullArtworkAnimator;
+    
     
     // Background views for theming
     private View mainContentView;
@@ -162,6 +185,8 @@ public class MainActivity extends AppCompatActivity {
     private NotificationManagerCompat notificationManager;
     private BroadcastReceiver notificationActionReceiver;
 
+    
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -191,6 +216,10 @@ public class MainActivity extends AppCompatActivity {
         themeAndroidBtn = findViewById(R.id.theme_android);
         themeMaterialYouBtn = findViewById(R.id.theme_material_you);
         themeMonochromeBtn = findViewById(R.id.theme_monochrome);
+        themeBozkurtBtn = findViewById(R.id.theme_bozkurt);
+        themeMechaBtn = findViewById(R.id.theme_mecha);
+        chooseWallpaperBtn = findViewById(R.id.choose_wallpaper);
+        clearWallpaperBtn = findViewById(R.id.clear_wallpaper);
         sortAlphabeticalBtn = findViewById(R.id.sort_alphabetical);
         sortDateAddedBtn = findViewById(R.id.sort_date_added);
         
@@ -228,6 +257,63 @@ public class MainActivity extends AppCompatActivity {
                         Toast.makeText(this, "Permission denied. Cannot load songs.", Toast.LENGTH_SHORT).show();
                     }
                 });
+
+        wallpaperPickerLauncher = registerForActivityResult(new ActivityResultContracts.GetContent(), uri -> {
+            if (uri != null) {
+                settingsManager.setWallpaperUriForTheme(settingsManager.getTheme(), uri.toString());
+            }
+            applyThemeDynamically();
+            updateSettingsButtonStates();
+        });
+
+        // Folder picker for user-selected folders (Storage Access Framework)
+        folderPickerLauncher = registerForActivityResult(new ActivityResultContracts.OpenDocumentTree(), uri -> {
+            if (uri != null) {
+                final int takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
+                try {
+                    getContentResolver().takePersistableUriPermission(uri, takeFlags);
+                } catch (SecurityException se) {
+                    // ignore if cannot take persistable permission
+                }
+                settingsManager.addIncludedFolder(uri.toString());
+                refreshFolderList();
+                loadSongs();
+                loadArtists();
+                loadAlbums();
+            }
+        });
+
+        // Folder settings UI bindings
+        includeDownloadsCheckbox = findViewById(R.id.include_downloads_checkbox);
+        includeDocumentsCheckbox = findViewById(R.id.include_documents_checkbox);
+        includeMusicCheckbox = findViewById(R.id.include_music_checkbox);
+        buttonAddFolder = findViewById(R.id.button_add_folder);
+        folderListContainerView = findViewById(R.id.folder_list_container);
+
+        includeDownloadsCheckbox.setChecked(settingsManager.isIncludeDownloads());
+        includeDocumentsCheckbox.setChecked(settingsManager.isIncludeDocuments());
+        includeMusicCheckbox.setChecked(settingsManager.isIncludeMusic());
+
+        includeDownloadsCheckbox.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            settingsManager.setIncludeDownloads(isChecked);
+            loadSongs();
+        });
+
+        includeDocumentsCheckbox.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            settingsManager.setIncludeDocuments(isChecked);
+            loadSongs();
+        });
+
+        includeMusicCheckbox.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            settingsManager.setIncludeMusic(isChecked);
+            loadSongs();
+        });
+
+        buttonAddFolder.setOnClickListener(v -> folderPickerLauncher.launch(null));
+
+        refreshFolderList();
+
+        
 
 
 
@@ -299,13 +385,46 @@ public class MainActivity extends AppCompatActivity {
                 MediaStore.Audio.Media.DATE_ADDED,
                 MediaStore.Audio.Media.IS_MUSIC
         };
-        String selection = MediaStore.Audio.Media.IS_MUSIC + " != 0";
-        String sortOrder = settingsManager.getSortMode().equals(SettingsManager.SORT_DATE_ADDED) 
-                ? MediaStore.Audio.Media.DATE_ADDED + " DESC"
-                : MediaStore.Audio.Media.TITLE + " ASC";
+        // Restrict to common user folders: Download, Documents, Music (external storage)
+        String externalRoot = android.os.Environment.getExternalStorageDirectory().getAbsolutePath();
+        java.util.List<String> patterns = new java.util.ArrayList<>();
+        if (settingsManager.isIncludeDownloads()) {
+            patterns.add(externalRoot + "/Download/%");
+        }
+        if (settingsManager.isIncludeDocuments()) {
+            patterns.add(externalRoot + "/Documents/%");
+        }
+        if (settingsManager.isIncludeMusic()) {
+            patterns.add(externalRoot + "/Music/%");
+        }
+
+        String selection;
+        String[] selectionArgs;
+        if (patterns.isEmpty()) {
+            // If none of the defaults are enabled, query only by IS_MUSIC
+            selection = MediaStore.Audio.Media.IS_MUSIC + " != 0";
+            selectionArgs = new String[]{};
+        } else {
+            StringBuilder sb = new StringBuilder();
+            sb.append(MediaStore.Audio.Media.IS_MUSIC).append(" != 0 AND (");
+            for (int i = 0; i < patterns.size(); i++) {
+                if (i > 0) sb.append(" OR ");
+                sb.append(MediaStore.Audio.Media.DATA).append(" LIKE ?");
+            }
+            sb.append(")");
+            selection = sb.toString();
+            selectionArgs = patterns.toArray(new String[0]);
+        }
+
+        String sortOrder = settingsManager.getSortMode().equals(SettingsManager.SORT_DATE_ADDED)
+            ? MediaStore.Audio.Media.DATE_ADDED + " DESC"
+            : MediaStore.Audio.Media.TITLE + " ASC";
+
+        
+
         Cursor cursor = null;
         try {
-            cursor = resolver.query(uri, projection, selection, null, sortOrder);
+            cursor = resolver.query(uri, projection, selection, selectionArgs, sortOrder);
             if (cursor != null) {
                 int titleIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE);
                 int artistIndex = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST);
@@ -341,6 +460,46 @@ public class MainActivity extends AppCompatActivity {
             hideEmptyState();
         }
         playerSheet.post(this::ensurePlayerSheetVisible);
+    }
+
+    private void refreshFolderList() {
+        if (folderListContainerView == null) return;
+        folderListContainerView.removeAllViews();
+        java.util.Set<String> included = settingsManager.getIncludedFolders();
+        if (included == null || included.isEmpty()) {
+            TextView hint = new TextView(this);
+            hint.setText("No custom folders added.");
+            folderListContainerView.addView(hint);
+            return;
+        }
+
+        for (String uriString : included) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setLayoutParams(new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+            TextView tv = new TextView(this);
+            String title = uriString;
+            try {
+                Uri u = Uri.parse(uriString);
+                DocumentFile doc = DocumentFile.fromTreeUri(this, u);
+                if (doc != null && doc.getName() != null) title = doc.getName();
+            } catch (Exception ignored) {}
+            tv.setText(title);
+            tv.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            com.google.android.material.button.MaterialButton remove = new com.google.android.material.button.MaterialButton(this);
+            remove.setText("Remove");
+            remove.setOnClickListener(v -> {
+                settingsManager.removeIncludedFolder(uriString);
+                refreshFolderList();
+                loadSongs();
+            });
+
+            row.addView(tv);
+            row.addView(remove);
+            folderListContainerView.addView(row);
+        }
     }
 
     private List<ListItem> buildListWithHeaders() {
@@ -612,6 +771,27 @@ public class MainActivity extends AppCompatActivity {
             applyThemeDynamically();
             updateSettingsButtonStates();
         });
+
+        themeBozkurtBtn.setOnClickListener(v -> {
+            settingsManager.setTheme(SettingsManager.THEME_BOZKURT);
+            applyThemeDynamically();
+            updateSettingsButtonStates();
+        });
+        
+        themeMechaBtn.setOnClickListener(v -> {
+            settingsManager.setTheme(SettingsManager.THEME_MECHA);
+            applyThemeDynamically();
+            updateSettingsButtonStates();
+        });
+        
+        chooseWallpaperBtn.setOnClickListener(v -> wallpaperPickerLauncher.launch("image/*"));
+
+        clearWallpaperBtn.setOnClickListener(v -> {
+            String current = settingsManager.getTheme();
+            settingsManager.setWallpaperUriForTheme(current, null);
+            applyThemeDynamically();
+            updateSettingsButtonStates();
+        });
         
         sortAlphabeticalBtn.setOnClickListener(v -> {
             settingsManager.setSortMode(SettingsManager.SORT_ALPHABETICAL);
@@ -633,10 +813,17 @@ public class MainActivity extends AppCompatActivity {
         styleSettingsButton(themeAndroidBtn, currentThemeStr.equals(SettingsManager.THEME_ANDROID));
         styleSettingsButton(themeMaterialYouBtn, currentThemeStr.equals(SettingsManager.THEME_MATERIAL_YOU));
         styleSettingsButton(themeMonochromeBtn, currentThemeStr.equals(SettingsManager.THEME_MONOCHROME));
+        styleSettingsButton(themeBozkurtBtn, currentThemeStr.equals(SettingsManager.THEME_BOZKURT));
+        styleSettingsButton(themeMechaBtn, currentThemeStr.equals(SettingsManager.THEME_MECHA));
         
         String currentSort = settingsManager.getSortMode();
         styleSettingsButton(sortAlphabeticalBtn, currentSort.equals(SettingsManager.SORT_ALPHABETICAL));
         styleSettingsButton(sortDateAddedBtn, currentSort.equals(SettingsManager.SORT_DATE_ADDED));
+        // Enable/disable clear wallpaper button depending on whether a wallpaper exists for current theme
+        if (clearWallpaperBtn != null) {
+            String wallpaperForCurrent = settingsManager.getWallpaperUriForTheme(currentThemeStr);
+            clearWallpaperBtn.setEnabled(wallpaperForCurrent != null);
+        }
     }
     
     private void styleSettingsButton(com.google.android.material.button.MaterialButton button, boolean isActive) {
@@ -701,7 +888,28 @@ public class MainActivity extends AppCompatActivity {
         if (currentTheme == null) return;
         
         // Update backgrounds
-        if (mainContentView != null) mainContentView.setBackgroundColor(currentTheme.backgroundColor);
+        if (mainContentView != null) {
+            String currentThemeKey = settingsManager.getTheme();
+            String wallpaperUri = settingsManager.getWallpaperUriForTheme(currentThemeKey);
+            Drawable d = null;
+            if (wallpaperUri != null) {
+                d = loadWallpaperDrawable(wallpaperUri);
+            }
+            // If none set and current theme is BOZKURT, try to load bundled/asset default
+                if (d == null && SettingsManager.THEME_BOZKURT.equals(currentThemeKey)) {
+                    // Try assets/wallpapers/... (place the file at app/src/main/assets/wallpapers/<name>)
+                    d = loadWallpaperDrawableFromAsset("wallpapers/29-295219_arka-plan-wallpaper-2761364703.jpg");
+                }
+                // If still null and Mecha theme, try Mecha asset
+                if (d == null && SettingsManager.THEME_MECHA.equals(currentThemeKey)) {
+                    d = loadWallpaperDrawableFromAsset("wallpapers/NGEwallpaper.jpg");
+                }
+            if (d != null) {
+                mainContentView.setBackground(d);
+            } else {
+                mainContentView.setBackgroundColor(currentTheme.backgroundColor);
+            }
+        }
         if (playerSheetCard != null) playerSheetCard.setBackgroundColor(currentTheme.surfaceColor);
         if (fullPlayerSheet != null) fullPlayerSheet.setBackgroundColor(currentTheme.surfaceColor);
         
@@ -731,6 +939,183 @@ public class MainActivity extends AppCompatActivity {
         applyControlButtonTint(fullForwardButton);
         applyControlButtonTint(fullPlayerClose);
     }
+
+    private Drawable loadWallpaperDrawable(String uriStr) {
+        if (uriStr == null) return null;
+        try {
+            Uri uri = Uri.parse(uriStr);
+            ContentResolver resolver = getContentResolver();
+
+            // Determine target size (use view size if available, otherwise screen size)
+            int targetW = getResources().getDisplayMetrics().widthPixels;
+            int targetH = getResources().getDisplayMetrics().heightPixels;
+            if (mainContentView != null && mainContentView.getWidth() > 0 && mainContentView.getHeight() > 0) {
+                targetW = mainContentView.getWidth();
+                targetH = mainContentView.getHeight();
+            }
+
+            // First decode bounds to compute a sample size
+            BitmapFactory.Options boundsOpts = new BitmapFactory.Options();
+            boundsOpts.inJustDecodeBounds = true;
+            try (java.io.InputStream is1 = resolver.openInputStream(uri)) {
+                if (is1 == null) return null;
+                BitmapFactory.decodeStream(is1, null, boundsOpts);
+            }
+
+            int srcW = boundsOpts.outWidth;
+            int srcH = boundsOpts.outHeight;
+            if (srcW <= 0 || srcH <= 0) return null;
+
+            int inSampleSize = 1;
+            while ((srcW / inSampleSize) > targetW * 2 || (srcH / inSampleSize) > targetH * 2) {
+                inSampleSize *= 2;
+            }
+
+            BitmapFactory.Options decodeOpts = new BitmapFactory.Options();
+            decodeOpts.inSampleSize = inSampleSize;
+            decodeOpts.inPreferredConfig = Bitmap.Config.ARGB_8888;
+
+            try (java.io.InputStream is2 = resolver.openInputStream(uri)) {
+                if (is2 == null) return null;
+                Bitmap bmp = BitmapFactory.decodeStream(is2, null, decodeOpts);
+                if (bmp == null) return null;
+
+                // Scale up to cover target while preserving aspect ratio (centerCrop)
+                float scale = Math.max((float) targetW / bmp.getWidth(), (float) targetH / bmp.getHeight());
+                int scaledW = Math.max(1, Math.round(bmp.getWidth() * scale));
+                int scaledH = Math.max(1, Math.round(bmp.getHeight() * scale));
+                Bitmap scaled = Bitmap.createScaledBitmap(bmp, scaledW, scaledH, true);
+
+                // Crop center to target size
+                int x = Math.max(0, (scaledW - targetW) / 2);
+                int y = Math.max(0, (scaledH - targetH) / 2);
+                int cw = Math.min(targetW, scaled.getWidth() - x);
+                int ch = Math.min(targetH, scaled.getHeight() - y);
+                Bitmap cropped = Bitmap.createBitmap(scaled, x, y, cw, ch);
+
+                if (cropped != scaled) scaled.recycle();
+                if (bmp != cropped && !bmp.isRecycled()) bmp.recycle();
+
+                return new BitmapDrawable(getResources(), cropped);
+            }
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Drawable loadWallpaperDrawableFromAsset(String assetPath) {
+        if (assetPath == null) return null;
+        try {
+            android.content.res.AssetManager am = getAssets();
+            try (java.io.InputStream is = am.open(assetPath)) {
+                if (is == null) return null;
+
+                int targetW = getResources().getDisplayMetrics().widthPixels;
+                int targetH = getResources().getDisplayMetrics().heightPixels;
+                if (mainContentView != null && mainContentView.getWidth() > 0 && mainContentView.getHeight() > 0) {
+                    targetW = mainContentView.getWidth();
+                    targetH = mainContentView.getHeight();
+                }
+
+                BitmapFactory.Options boundsOpts = new BitmapFactory.Options();
+                boundsOpts.inJustDecodeBounds = true;
+                // Need to reopen stream to read bounds, so read into a byte array first
+                byte[] data = readAllBytesFromStream(is);
+                if (data == null) return null;
+                BitmapFactory.decodeByteArray(data, 0, data.length, boundsOpts);
+
+                int srcW = boundsOpts.outWidth;
+                int srcH = boundsOpts.outHeight;
+                if (srcW <= 0 || srcH <= 0) return null;
+
+                int inSampleSize = 1;
+                while ((srcW / inSampleSize) > targetW * 2 || (srcH / inSampleSize) > targetH * 2) {
+                    inSampleSize *= 2;
+                }
+
+                BitmapFactory.Options decodeOpts = new BitmapFactory.Options();
+                decodeOpts.inSampleSize = inSampleSize;
+                decodeOpts.inPreferredConfig = Bitmap.Config.ARGB_8888;
+
+                Bitmap bmp = BitmapFactory.decodeByteArray(data, 0, data.length, decodeOpts);
+                if (bmp == null) return null;
+
+                float scale = Math.max((float) targetW / bmp.getWidth(), (float) targetH / bmp.getHeight());
+                int scaledW = Math.max(1, Math.round(bmp.getWidth() * scale));
+                int scaledH = Math.max(1, Math.round(bmp.getHeight() * scale));
+                Bitmap scaled = Bitmap.createScaledBitmap(bmp, scaledW, scaledH, true);
+
+                int x = Math.max(0, (scaledW - targetW) / 2);
+                int y = Math.max(0, (scaledH - targetH) / 2);
+                int cw = Math.min(targetW, scaled.getWidth() - x);
+                int ch = Math.min(targetH, scaled.getHeight() - y);
+                Bitmap cropped = Bitmap.createBitmap(scaled, x, y, cw, ch);
+
+                if (cropped != scaled) scaled.recycle();
+                if (bmp != cropped && !bmp.isRecycled()) bmp.recycle();
+
+                return new BitmapDrawable(getResources(), cropped);
+            }
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private byte[] readAllBytesFromStream(java.io.InputStream is) {
+        try (java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream()) {
+            byte[] buf = new byte[8192];
+            int r;
+            while ((r = is.read(buf)) != -1) {
+                baos.write(buf, 0, r);
+            }
+            return baos.toByteArray();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Drawable makeCircularDrawable(Drawable src) {
+        if (src == null) return null;
+        try {
+            Bitmap bmp;
+            if (src instanceof BitmapDrawable) {
+                bmp = ((BitmapDrawable) src).getBitmap();
+            } else {
+                int w = Math.max(src.getIntrinsicWidth(), 1);
+                int h = Math.max(src.getIntrinsicHeight(), 1);
+                Bitmap bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                Canvas canvas = new Canvas(bitmap);
+                src.setBounds(0, 0, canvas.getWidth(), canvas.getHeight());
+                src.draw(canvas);
+                bmp = bitmap;
+            }
+
+            int size = Math.min(bmp.getWidth(), bmp.getHeight());
+            int x = (bmp.getWidth() - size) / 2;
+            int y = (bmp.getHeight() - size) / 2;
+            Bitmap squared = Bitmap.createBitmap(bmp, x, y, size, size);
+
+            Bitmap output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(output);
+
+            final Paint paint = new Paint();
+            paint.setAntiAlias(true);
+            BitmapShader shader = new BitmapShader(squared, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+            paint.setShader(shader);
+
+            float r = size / 2f;
+            canvas.drawCircle(r, r, r, paint);
+
+            if (squared != bmp && !squared.isRecycled()) squared.recycle();
+
+            return new BitmapDrawable(getResources(), output);
+        } catch (Exception e) {
+            return src;
+        }
+    }
+
+    
+
     
     private void applyControlButtonTint(ImageButton button) {
         if (button != null && currentTheme != null) {
@@ -996,6 +1381,8 @@ public class MainActivity extends AppCompatActivity {
         target = Math.max(0, Math.min(duration, target));
         mediaPlayer.seekTo(target);
     }
+
+    
 
     private void updatePlayPauseIcon(boolean isPlaying) {
         if (playPauseButton == null) return;
@@ -1336,9 +1723,24 @@ public class MainActivity extends AppCompatActivity {
                 fullArtworkView.setImageBitmap(bitmap);
             }
         } else {
-            artworkView.setImageResource(R.mipmap.ic_launcher);
-            if (fullArtworkView != null) {
-                fullArtworkView.setImageResource(R.mipmap.ic_launcher);
+            // Default fallback is the Android icon. For Mecha theme use custom spinner asset (circular)
+            Drawable spinner = null;
+            try {
+                String currentTheme = settingsManager != null ? settingsManager.getTheme() : null;
+                if (SettingsManager.THEME_MECHA.equals(currentTheme)) {
+                    spinner = loadWallpaperDrawableFromAsset("wallpapers/NGEspinning.png");
+                    if (spinner != null) spinner = makeCircularDrawable(spinner);
+                }
+            } catch (Exception ignored) {
+            }
+            if (spinner != null) {
+                artworkView.setImageDrawable(spinner);
+                if (fullArtworkView != null) fullArtworkView.setImageDrawable(spinner);
+            } else {
+                artworkView.setImageResource(R.mipmap.ic_launcher);
+                if (fullArtworkView != null) {
+                    fullArtworkView.setImageResource(R.mipmap.ic_launcher);
+                }
             }
         }
         
