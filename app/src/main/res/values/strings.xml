@@ -16,6 +16,12 @@
     <string name="theme_android">Android</string>
     <string name="theme_material_you">Material You</string>
     <string name="theme_monochrome">Monochrome</string>
+    <string name="theme_bozkurt">Bozkurt</string>
+    <string name="theme_mecha">Mecha</string>
+    <string name="settings_wallpaper_section_mecha">Mecha Wallpaper</string>
+    <string name="settings_wallpaper_section">Wallpaper</string>
+    <string name="choose_wallpaper">Choose Wallpaper</string>
+    <string name="clear_wallpaper">Clear Wallpaper</string>
     <string name="settings_sort_section">Sort Tracks By</string>
     <string name="sort_alphabetical">A-Z</string>
     <string name="sort_date_added">Date Added</string>

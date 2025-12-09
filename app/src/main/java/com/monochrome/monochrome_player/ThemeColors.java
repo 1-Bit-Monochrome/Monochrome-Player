@@ -52,6 +52,28 @@ public class ThemeColors {
                     colors.secondaryColor = 0xFF64B5F6;
                 }
                 break;
+
+                case SettingsManager.THEME_BOZKURT:
+                // Bozkurt: red + white accents
+                colors.accentColor = 0xFFE53935; // vivid red
+                colors.backgroundColor = 0xFF0F172A;
+                colors.surfaceColor = 0xFF111827;
+                colors.onSurfaceColor = Color.WHITE;
+                colors.onSurfaceVariantColor = 0xFFFFCDD2; // light red/pink variant
+                colors.primaryColor = Color.WHITE;
+                colors.secondaryColor = 0xFFE57373; // softer red
+                break;
+                
+            case SettingsManager.THEME_MECHA:
+                // Mecha: dark blue background with violet/red accents
+                colors.accentColor = 0xFFE91E63; // accent red/pink
+                colors.backgroundColor = 0xFF071024; // very dark blue
+                colors.surfaceColor = 0xFF0B1624; // slightly lighter dark surface
+                colors.onSurfaceColor = Color.WHITE;
+                colors.onSurfaceVariantColor = 0xFF9C27B0; // violet variant
+                colors.primaryColor = 0xFF7C4DFF; // violet
+                colors.secondaryColor = 0xFFE53935; // red
+                break;
                 
             case SettingsManager.THEME_ANDROID:
             default:
