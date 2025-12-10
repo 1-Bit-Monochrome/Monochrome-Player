@@ -60,6 +60,19 @@
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintEnd_toEndOf="parent" />
 
+            <ImageButton
+                android:id="@+id/playlist_add_in_tracks"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_margin="12dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_input_add"
+                android:contentDescription="@string/add_to_playlist"
+                android:visibility="gone"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                android:layout_marginBottom="120dp" />
+
 
 
 
@@ -103,17 +116,85 @@
             android:id="@+id/playlists_container"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:gravity="center"
             android:orientation="vertical"
-            android:padding="24dp"
+            android:padding="8dp"
             android:visibility="gone">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/placeholder_playlists"
-                android:textAppearance="?attr/textAppearanceHeadlineSmall"
-                android:textAlignment="center" />
+            <FrameLayout
+                android:id="@+id/playlist_list_wrap"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1">
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/playlists_recycler_view"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false"
+                    android:padding="8dp"
+                    android:scrollbars="vertical" />
+
+                <com.google.android.material.floatingactionbutton.FloatingActionButton
+                    android:id="@+id/button_create_playlist"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_margin="12dp"
+                    android:layout_gravity="end|bottom"
+                    android:src="@android:drawable/ic_input_add"
+                    android:contentDescription="@string/create_playlist" />
+
+            </FrameLayout>
+
+            <LinearLayout
+                android:id="@+id/playlist_detail"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:padding="8dp">
+
+                    <ImageButton
+                        android:id="@+id/playlist_detail_back"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:src="@android:drawable/ic_media_previous"
+                        android:contentDescription="Back" />
+
+                    <TextView
+                        android:id="@+id/playlist_detail_title"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textAppearance="?attr/textAppearanceHeadlineSmall"
+                        android:text="Playlist" />
+
+                    <ImageButton
+                        android:id="@+id/playlist_detail_add"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:src="@android:drawable/ic_input_add"
+                        android:contentDescription="@string/add_to_playlist" />
+
+                </LinearLayout>
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/playlist_songs_recycler"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:clipToPadding="false"
+                    android:paddingBottom="120dp"
+                    android:scrollbars="vertical" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
@@ -365,35 +446,45 @@
                 </LinearLayout>
 
                 <TextView
+                    android:id="@+id/about_section_header"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/settings_about_section"
                     android:textAppearance="?attr/textAppearanceTitleMedium"
                     android:textColor="@color/player_accent"
                     android:paddingTop="16dp"
-                    android:paddingBottom="8dp" />
+                    android:paddingBottom="8dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackground" />
 
                 <TextView
+                    android:id="@+id/about_app_name"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/app_name"
                     android:textAppearance="?attr/textAppearanceBodyLarge"
                     android:textStyle="bold"
-                    android:paddingBottom="4dp" />
+                    android:paddingBottom="4dp"
+                    android:visibility="gone" />
 
                 <TextView
+                    android:id="@+id/about_version"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/settings_version"
                     android:textAppearance="?attr/textAppearanceBodyMedium"
-                    android:paddingBottom="4dp" />
+                    android:paddingBottom="4dp"
+                    android:visibility="gone" />
 
                 <TextView
+                    android:id="@+id/about_description"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/settings_description"
                     android:textAppearance="?attr/textAppearanceBodySmall"
-                    android:textColor="?attr/colorOnSurfaceVariant" />
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:visibility="gone" />
 
             </LinearLayout>
 
@@ -538,6 +629,13 @@
                         android:textAppearance="?attr/textAppearanceBodySmall"
                         android:textColor="@color/player_accent" />
                 </LinearLayout>
+
+                <ir.mahozad.multiplatform.wavyslider.WavySlider
+                    android:id="@+id/mini_wavy_seekbar"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="8dp" />
 
                 <LinearLayout
                     android:id="@+id/player_controls"
