@@ -37,4 +37,7 @@
     <string name="player_forward">Forward 10s / Next</string>
     <string name="player_repeat">Repeat</string>
     <string name="player_artwork_content_desc">Album artwork</string>
+    <string name="add_to_playlist">Add to playlist</string>
+    <string name="create_playlist">Create playlist</string>
+    <string name="favorite">Favorite</string>
 </resources>

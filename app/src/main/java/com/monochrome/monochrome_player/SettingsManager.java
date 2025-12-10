@@ -13,6 +13,7 @@ public class SettingsManager {
     private static final String KEY_INCLUDE_DOWNLOADS = "include_downloads";
     private static final String KEY_INCLUDE_DOCUMENTS = "include_documents";
     private static final String KEY_INCLUDE_MUSIC = "include_music";
+    private static final String KEY_PLAYLISTS = "playlists_json";
     
     public static final String THEME_ANDROID = "android";
     public static final String THEME_MATERIAL_YOU = "material_you";
@@ -110,5 +111,52 @@ public class SettingsManager {
     
     public void setSortMode(String sortMode) {
         prefs.edit().putString(KEY_SORT_MODE, sortMode).apply();
+    }
+
+    // Playlists stored as JSON array: [{"name":"...","songs":["path1","path2"]},...]
+    public java.util.List<Playlist> getPlaylists() {
+        String json = prefs.getString(KEY_PLAYLISTS, null);
+        java.util.List<Playlist> out = new java.util.ArrayList<>();
+        if (json == null) return out;
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray(json);
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject obj = arr.getJSONObject(i);
+                String name = obj.optString("name", "");
+                java.util.List<String> songs = new java.util.ArrayList<>();
+                org.json.JSONArray sarr = obj.optJSONArray("songs");
+                if (sarr != null) {
+                    for (int j = 0; j < sarr.length(); j++) songs.add(sarr.optString(j));
+                }
+                out.add(new Playlist(name, songs));
+            }
+        } catch (Exception ignored) {}
+        return out;
+    }
+
+    public void savePlaylists(java.util.List<Playlist> playlists) {
+        if (playlists == null) return;
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray();
+            for (Playlist p : playlists) {
+                org.json.JSONObject obj = new org.json.JSONObject();
+                obj.put("name", p.getName());
+                org.json.JSONArray sarr = new org.json.JSONArray();
+                for (String sp : p.getSongPaths()) sarr.put(sp);
+                obj.put("songs", sarr);
+                arr.put(obj);
+            }
+            prefs.edit().putString(KEY_PLAYLISTS, arr.toString()).apply();
+        } catch (Exception ignored) {}
+    }
+
+    public void addPlaylist(Playlist p) {
+        java.util.List<Playlist> pls = getPlaylists();
+        pls.add(p);
+        savePlaylists(pls);
+    }
+
+    public void updatePlaylists(java.util.List<Playlist> pls) {
+        savePlaylists(pls);
     }
 }
