@@ -13,6 +13,7 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private List<ListItem> itemList;
     private OnItemClickListener listener;
     private OnHeaderClickListener headerClickListener;
+    private OnItemLongClickListener longClickListener;
     private ThemeColors currentTheme;
 
     public interface OnItemClickListener {
@@ -38,6 +39,10 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     public void setOnHeaderClickListener(OnHeaderClickListener listener) {
         this.headerClickListener = listener;
+    }
+
+    public void setOnItemLongClickListener(OnItemLongClickListener listener) {
+        this.longClickListener = listener;
     }
 
     public void setTheme(ThemeColors theme) {
