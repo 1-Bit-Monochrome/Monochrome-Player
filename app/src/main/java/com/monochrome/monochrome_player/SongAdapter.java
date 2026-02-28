@@ -14,7 +14,6 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private OnItemClickListener listener;
     private OnHeaderClickListener headerClickListener;
     private OnItemLongClickListener longClickListener;
-    private ThemeColors currentTheme;
 
     public interface OnItemClickListener {
         void onItemClick(Song song, int position);
@@ -41,14 +40,7 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         this.headerClickListener = listener;
     }
 
-    public void setOnItemLongClickListener(OnItemLongClickListener listener) {
-        this.longClickListener = listener;
-    }
-
-    public void setTheme(ThemeColors theme) {
-        this.currentTheme = theme;
-        notifyDataSetChanged();
-    }
+    public void setOnItemLongClickListener(OnItemLongClickListener l) { this.longClickListener = l; }
 
     @Override
     public int getItemViewType(int position) {
