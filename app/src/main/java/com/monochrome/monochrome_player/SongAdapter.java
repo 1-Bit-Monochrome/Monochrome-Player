@@ -6,6 +6,7 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.core.content.ContextCompat;
 import java.util.List;
 
 public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
@@ -81,6 +82,13 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             SongViewHolder songHolder = (SongViewHolder) holder;
             songHolder.titleText.setText(song.getTitle());
             songHolder.artistText.setText(song.getArtist());
+            if (currentTheme != null) {
+                songHolder.titleText.setTextColor(currentTheme.onSurfaceColor);
+                songHolder.artistText.setTextColor(currentTheme.onSurfaceVariantColor);
+                songHolder.itemView.setBackgroundColor(currentTheme.listSurfaceColor);
+                songHolder.itemView.setForeground(ContextCompat.getDrawable(
+                        songHolder.itemView.getContext(), android.R.drawable.list_selector_background));
+            }
 
             songHolder.itemView.setOnClickListener(v -> {
                 if (listener != null) {

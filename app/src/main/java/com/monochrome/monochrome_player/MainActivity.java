@@ -13,6 +13,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.database.Cursor;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -22,6 +23,7 @@ import android.graphics.BitmapShader;
 import android.graphics.Shader;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaPlayer;
 import android.net.Uri;
@@ -64,6 +66,7 @@ import androidx.media.app.NotificationCompat.MediaStyle;
 import android.support.v4.media.session.MediaSessionCompat;
 
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.imageview.ShapeableImageView;
 import com.google.android.material.navigationrail.NavigationRailView;
 
@@ -130,6 +133,12 @@ public class MainActivity extends AppCompatActivity {
     private CheckBox includeMusicCheckbox;
     private com.google.android.material.button.MaterialButton buttonAddFolder;
     private LinearLayout folderListContainerView;
+    private TextView settingsTitle;
+    private TextView settingsThemeHeading;
+    private TextView settingsSortHeading;
+    private TextView settingsWallpaperHeading;
+    private TextView settingsMusicHeading;
+    private TextView foldersHint;
 
     // Player UI - Mini Player
     private View playerSheet;
@@ -150,7 +159,7 @@ public class MainActivity extends AppCompatActivity {
     private int collapsedPeekHeight = 0;
 
     // Player UI - Full Player
-    private View fullPlayerSheet;
+    private MaterialCardView fullPlayerSheet;
     private TextView fullPlayerTitleView;
     private TextView fullPlayerArtistView;
     private TextView fullPlayerAlbumView;
@@ -176,7 +185,7 @@ public class MainActivity extends AppCompatActivity {
     
     // Background views for theming
     private View mainContentView;
-    private View playerSheetCard;
+    private MaterialCardView playerSheetCard;
 
     // Playback
     private MediaPlayer mediaPlayer;
@@ -190,6 +199,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean backClickPending = false;
     private boolean forwardClickPending = false;
     private static final long DOUBLE_TAP_WINDOW_MS = 350L;
+    private static final int COLLAPSED_PEEK_HEIGHT_DP = 72;
     private final Runnable backSingleAction = () -> {
         backClickPending = false;
         seekBy(-10_000);
@@ -265,16 +275,22 @@ public class MainActivity extends AppCompatActivity {
         sortAlphabeticalBtn = findViewById(R.id.sort_alphabetical);
         sortDateAddedBtn = findViewById(R.id.sort_date_added);
         
+        settingsTitle = findViewById(R.id.settings_title);
         aboutSectionHeader = findViewById(R.id.about_section_header);
         aboutAppName = findViewById(R.id.about_app_name);
         aboutVersion = findViewById(R.id.about_version);
         aboutDescription = findViewById(R.id.about_description);
+        settingsThemeHeading = findViewById(R.id.settings_theme_heading);
+        settingsSortHeading = findViewById(R.id.settings_sort_heading);
+        settingsWallpaperHeading = findViewById(R.id.settings_wallpaper_heading);
+        settingsMusicHeading = findViewById(R.id.settings_music_heading);
+        foldersHint = findViewById(R.id.folders_hint);
         
         if (aboutSectionHeader != null) {
             aboutSectionHeader.setOnClickListener(v -> toggleAboutSection());
         }
         
-        mainContentView = findViewById(R.id.tracks_container);
+        mainContentView = findViewById(R.id.content_container);
         playerSheetCard = findViewById(R.id.player_sheet);
         
         setupSettingsButtons();
@@ -439,6 +455,7 @@ public class MainActivity extends AppCompatActivity {
         navigationRailView.setSelectedItemId(R.id.nav_tracks);
         showSection(tracksContainer);
 
+        applyThemeDynamically();
         checkPermissionsAndLoadSongs();
     }
 
@@ -543,6 +560,7 @@ public class MainActivity extends AppCompatActivity {
         List<ListItem> listItems = buildListWithHeaders();
         adapter = new SongAdapter(listItems);
         recyclerView.setAdapter(adapter);
+        if (currentTheme != null) adapter.setTheme(currentTheme);
         adapter.setOnItemClickListener((song, position) -> openSong(position));
         adapter.setOnHeaderClickListener(this::showAlphabetPopup);
         
@@ -561,6 +579,9 @@ public class MainActivity extends AppCompatActivity {
         if (included == null || included.isEmpty()) {
             TextView hint = new TextView(this);
             hint.setText("No custom folders added.");
+            if (currentTheme != null) {
+                hint.setTextColor(currentTheme.onSurfaceColor);
+            }
             folderListContainerView.addView(hint);
             return;
         }
@@ -578,10 +599,17 @@ public class MainActivity extends AppCompatActivity {
                 if (doc != null && doc.getName() != null) title = doc.getName();
             } catch (Exception ignored) {}
             tv.setText(title);
+            if (currentTheme != null) {
+                tv.setTextColor(currentTheme.onSurfaceColor);
+            }
             tv.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
             com.google.android.material.button.MaterialButton remove = new com.google.android.material.button.MaterialButton(this);
             remove.setText("Remove");
+            if (currentTheme != null) {
+                remove.setBackgroundTintList(ColorStateList.valueOf(currentTheme.surfaceColor));
+                remove.setTextColor(currentTheme.accentColor);
+            }
             remove.setOnClickListener(v -> {
                 settingsManager.removeIncludedFolder(uriString);
                 refreshFolderList();
@@ -763,6 +791,20 @@ public class MainActivity extends AppCompatActivity {
                 return null;
             });
             miniSeekBar.setWaveAnimating(false);
+            miniSeekBar.setOnTouchListener((v, event) -> {
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        miniSeekBar.setWaveAnimating(false);
+                        break;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+                            miniSeekBar.setWaveAnimating(true);
+                        }
+                        break;
+                }
+                return false;
+            });
         }
 
         playerSheetBehavior = BottomSheetBehavior.from(playerSheet);
@@ -770,7 +812,7 @@ public class MainActivity extends AppCompatActivity {
         playerSheetBehavior.setSkipCollapsed(false);
         playerSheetBehavior.setSaveFlags(BottomSheetBehavior.SAVE_NONE);
         playerSheetBehavior.setDraggable(true);
-        playerSheetBehavior.setPeekHeight(dpToPx(88), false);
+        playerSheetBehavior.setPeekHeight(dpToPx(COLLAPSED_PEEK_HEIGHT_DP), false);
         playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
         
         playerSheet.post(() -> {
@@ -845,6 +887,20 @@ public class MainActivity extends AppCompatActivity {
         }
         if (fullSeekBar != null) {
             fullSeekBar.setWaveAnimating(false);
+            fullSeekBar.setOnTouchListener((v, event) -> {
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        fullSeekBar.setWaveAnimating(false);
+                        break;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+                            fullSeekBar.setWaveAnimating(true);
+                        }
+                        break;
+                }
+                return false;
+            });
         }
         fullPlayerAlbumView = findViewById(R.id.full_player_album);
         fullArtworkView = findViewById(R.id.full_artwork_view);
@@ -1011,9 +1067,20 @@ public class MainActivity extends AppCompatActivity {
                     
                     // Update navigation rail
                     if (navigationRailView != null) {
-                        navigationRailView.setItemActiveIndicatorColor(android.content.res.ColorStateList.valueOf(currentTheme.accentColor));
-                        navigationRailView.setItemIconTintList(android.content.res.ColorStateList.valueOf(currentTheme.onSurfaceVariantColor));
-                        navigationRailView.setItemTextColor(android.content.res.ColorStateList.valueOf(currentTheme.onSurfaceVariantColor));
+                        ColorStateList navColorState = new ColorStateList(
+                                new int[][]{
+                                        new int[]{android.R.attr.state_checked},
+                                        new int[]{}
+                                },
+                                new int[]{
+                                        currentTheme.onSurfaceColor,
+                                        currentTheme.onSurfaceVariantColor
+                                }
+                        );
+                        int indicator = blendColors(currentTheme.accentColor, currentTheme.backgroundColor, 0.35f);
+                        navigationRailView.setItemActiveIndicatorColor(ColorStateList.valueOf(indicator));
+                        navigationRailView.setItemIconTintList(navColorState);
+                        navigationRailView.setItemTextColor(navColorState);
                     }
                     
                     // Update player sheet
@@ -1030,6 +1097,7 @@ public class MainActivity extends AppCompatActivity {
                     if (adapter != null) adapter.setTheme(currentTheme);
                     if (artistAdapter != null) artistAdapter.setTheme(currentTheme);
                     if (albumAdapter != null) albumAdapter.setTheme(currentTheme);
+                    if (playlistAdapter != null) playlistAdapter.setTheme(currentTheme);
                     
                     // Fade back in
                     decorView.animate()
@@ -1066,8 +1134,32 @@ public class MainActivity extends AppCompatActivity {
                 mainContentView.setBackgroundColor(currentTheme.backgroundColor);
             }
         }
-        if (playerSheetCard != null) playerSheetCard.setBackgroundColor(currentTheme.surfaceColor);
-        if (fullPlayerSheet != null) fullPlayerSheet.setBackgroundColor(currentTheme.surfaceColor);
+        View[] sections = new View[]{tracksContainer, artistsContainer, playlistsContainer, albumsContainer, settingsContainer};
+        for (View section : sections) {
+            if (section != null) {
+                section.setBackgroundColor(Color.TRANSPARENT);
+            }
+        }
+        if (navigationRailView != null) {
+            navigationRailView.setBackgroundColor(blendColors(currentTheme.backgroundColor, Color.BLACK, 0.2f));
+        }
+        if (playerSheetCard != null) playerSheetCard.setCardBackgroundColor(Color.TRANSPARENT);
+        if (fullPlayerSheet != null) fullPlayerSheet.setCardBackgroundColor(Color.TRANSPARENT);
+
+        View miniPlayerBackground = playerSheet != null ? playerSheet.findViewById(R.id.player_sheet_background) : null;
+        View fullPlayerBackground = fullPlayerSheet != null ? fullPlayerSheet.findViewById(R.id.full_player_background) : null;
+        tintPlayerSheetBackground(miniPlayerBackground);
+        tintPlayerSheetBackground(fullPlayerBackground);
+
+        View dragHandle = playerSheet != null ? playerSheet.findViewById(R.id.player_drag_handle) : null;
+        if (dragHandle != null) {
+            Drawable handleBg = dragHandle.getBackground();
+            if (handleBg instanceof GradientDrawable) {
+                ((GradientDrawable) handleBg.mutate()).setColor(currentTheme.onSurfaceVariantColor);
+            } else {
+                dragHandle.setBackgroundColor(currentTheme.onSurfaceVariantColor);
+            }
+        }
         
         // Update player controls tint
         updateControlTint(shuffleButton, isShuffleEnabled);
@@ -1080,11 +1172,13 @@ public class MainActivity extends AppCompatActivity {
         if (collapsedTitleView != null) collapsedTitleView.setTextColor(currentTheme.onSurfaceColor);
         if (playerArtistView != null) playerArtistView.setTextColor(currentTheme.accentColor);
         if (playerAlbumView != null) playerAlbumView.setTextColor(currentTheme.accentColor);
+        tintDiscRing(artworkView);
         
         // Update full player text colors
         if (fullPlayerTitleView != null) fullPlayerTitleView.setTextColor(currentTheme.onSurfaceColor);
         if (fullPlayerArtistView != null) fullPlayerArtistView.setTextColor(currentTheme.accentColor);
         if (fullPlayerAlbumView != null) fullPlayerAlbumView.setTextColor(currentTheme.accentColor);
+        tintDiscRing(fullArtworkView);
         
         // Update control button tints
         applyControlButtonTint(playPauseButton);
@@ -1098,17 +1192,75 @@ public class MainActivity extends AppCompatActivity {
         if (miniSeekBar != null) {
             miniSeekBar.setWaveColor(currentTheme.accentColor);
             miniSeekBar.setActiveTrackColor(currentTheme.accentColor);
-            miniSeekBar.setInactiveTrackColor(currentTheme.surfaceColor);
+            miniSeekBar.setInactiveTrackColor(currentTheme.listSurfaceColor);
             miniSeekBar.setThumbColor(currentTheme.accentColor);
         }
         if (fullSeekBar != null) {
             fullSeekBar.setWaveColor(currentTheme.accentColor);
             fullSeekBar.setActiveTrackColor(currentTheme.accentColor);
-            fullSeekBar.setInactiveTrackColor(currentTheme.surfaceColor);
+            fullSeekBar.setInactiveTrackColor(currentTheme.listSurfaceColor);
             fullSeekBar.setThumbColor(currentTheme.accentColor);
         }
         
         if (aboutSectionHeader != null) aboutSectionHeader.setTextColor(currentTheme.accentColor);
+        if (aboutAppName != null) aboutAppName.setTextColor(currentTheme.onSurfaceColor);
+        if (aboutVersion != null) aboutVersion.setTextColor(currentTheme.onSurfaceVariantColor);
+        if (aboutDescription != null) aboutDescription.setTextColor(currentTheme.onSurfaceVariantColor);
+        if (settingsTitle != null) settingsTitle.setTextColor(currentTheme.onSurfaceColor);
+        if (settingsThemeHeading != null) settingsThemeHeading.setTextColor(currentTheme.accentColor);
+        if (settingsSortHeading != null) settingsSortHeading.setTextColor(currentTheme.accentColor);
+        if (settingsWallpaperHeading != null) settingsWallpaperHeading.setTextColor(currentTheme.accentColor);
+        if (settingsMusicHeading != null) settingsMusicHeading.setTextColor(currentTheme.accentColor);
+        if (emptyView != null) emptyView.setTextColor(currentTheme.onSurfaceColor);
+        if (artistsEmptyView != null) artistsEmptyView.setTextColor(currentTheme.onSurfaceColor);
+        if (albumsEmptyView != null) albumsEmptyView.setTextColor(currentTheme.onSurfaceColor);
+        if (includeDownloadsCheckbox != null) includeDownloadsCheckbox.setTextColor(currentTheme.onSurfaceColor);
+        if (includeDocumentsCheckbox != null) includeDocumentsCheckbox.setTextColor(currentTheme.onSurfaceColor);
+        if (includeMusicCheckbox != null) includeMusicCheckbox.setTextColor(currentTheme.onSurfaceColor);
+        if (foldersHint != null) foldersHint.setTextColor(currentTheme.onSurfaceVariantColor);
+        if (playlistDetailTitle != null) playlistDetailTitle.setTextColor(currentTheme.onSurfaceColor);
+        if (playlistDetailBack != null) playlistDetailBack.setColorFilter(currentTheme.onSurfaceColor);
+        if (playlistDetailAddButton != null) playlistDetailAddButton.setColorFilter(currentTheme.accentColor);
+        if (buttonCreatePlaylist != null) {
+            buttonCreatePlaylist.setBackgroundTintList(ColorStateList.valueOf(currentTheme.accentColor));
+            buttonCreatePlaylist.setColorFilter(currentTheme.onSurfaceColor);
+        }
+        if (playlistAddInTracks != null) {
+            playlistAddInTracks.setColorFilter(currentTheme.accentColor);
+        }
+    }
+
+    private void tintPlayerSheetBackground(View sheetBg) {
+        if (sheetBg == null || currentTheme == null) return;
+        Drawable bg = sheetBg.getBackground();
+        if (bg instanceof GradientDrawable) {
+            GradientDrawable gd = (GradientDrawable) bg.mutate();
+            int top = blendColors(currentTheme.surfaceColor, currentTheme.accentColor, 0.12f);
+            int bottom = blendColors(currentTheme.surfaceColor, Color.BLACK, 0.18f);
+            gd.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM);
+            gd.setColors(new int[]{top, bottom});
+        } else {
+            sheetBg.setBackgroundColor(currentTheme.surfaceColor);
+        }
+    }
+
+    private void tintDiscRing(View view) {
+        if (view == null || currentTheme == null) return;
+        Drawable bg = view.getBackground();
+        if (bg instanceof GradientDrawable) {
+            GradientDrawable gd = (GradientDrawable) bg.mutate();
+            gd.setColor(blendColors(currentTheme.surfaceColor, Color.BLACK, 0.08f));
+            gd.setStroke(dpToPx(3), currentTheme.accentColor);
+        }
+    }
+
+    private int blendColors(int baseColor, int overlayColor, float ratio) {
+        float clamped = Math.max(0f, Math.min(1f, ratio));
+        int a = Math.round(Color.alpha(baseColor) * (1 - clamped) + Color.alpha(overlayColor) * clamped);
+        int r = Math.round(Color.red(baseColor) * (1 - clamped) + Color.red(overlayColor) * clamped);
+        int g = Math.round(Color.green(baseColor) * (1 - clamped) + Color.green(overlayColor) * clamped);
+        int b = Math.round(Color.blue(baseColor) * (1 - clamped) + Color.blue(overlayColor) * clamped);
+        return Color.argb(a, r, g, b);
     }
 
     private Drawable loadWallpaperDrawable(String uriStr) {
@@ -1364,7 +1516,7 @@ public class MainActivity extends AppCompatActivity {
                 ? playerHeader.getHeight()
                 : dpToPx(60);
         int paddingTop = playerSheet.getPaddingTop();
-        collapsedPeekHeight = Math.max(dpToPx(88), paddingTop + headerHeight);
+        collapsedPeekHeight = Math.max(dpToPx(COLLAPSED_PEEK_HEIGHT_DP), paddingTop + headerHeight);
     }
 
     private void showMiniPlayerCollapsed() {
@@ -1372,7 +1524,7 @@ public class MainActivity extends AppCompatActivity {
         if (collapsedPeekHeight <= 0) {
             updateCollapsedPeekHeight();
         }
-        int peekHeight = collapsedPeekHeight > 0 ? collapsedPeekHeight : dpToPx(88);
+        int peekHeight = collapsedPeekHeight > 0 ? collapsedPeekHeight : dpToPx(COLLAPSED_PEEK_HEIGHT_DP);
         playerSheetBehavior.setPeekHeight(peekHeight, false);
         playerSheetBehavior.setHideable(false);
         playerSheetBehavior.setDraggable(true);
@@ -1634,8 +1786,13 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateControlTint(ImageButton button, boolean active) {
         if (button == null) return;
-        int color = ContextCompat.getColor(this, active ? R.color.player_accent : R.color.player_control);
-        button.setColorFilter(color);
+        if (currentTheme != null) {
+            int color = active ? currentTheme.accentColor : currentTheme.onSurfaceVariantColor;
+            button.setColorFilter(color);
+        } else {
+            int color = ContextCompat.getColor(this, active ? R.color.player_accent : R.color.player_control);
+            button.setColorFilter(color);
+        }
     }
 
     private void loadArtists() {
@@ -1659,6 +1816,7 @@ public class MainActivity extends AppCompatActivity {
         List<ListItem> listItems = buildArtistListWithHeaders();
         artistAdapter = new GenericListAdapter(listItems);
         artistsRecyclerView.setAdapter(artistAdapter);
+        if (currentTheme != null) artistAdapter.setTheme(currentTheme);
         artistAdapter.setOnItemClickListener(item -> {
             if (item.getType() == ListItem.TYPE_HEADER) {
                 showAlphabetPopupForArtists();
@@ -1713,6 +1871,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         SongAdapter sa = new SongAdapter(items);
+        if (currentTheme != null) sa.setTheme(currentTheme);
         sa.setOnItemClickListener((song, pos) -> {
             if (pos >= 0 && pos < queueIndices.size()) {
                 int globalIndex = queueIndices.get(pos);
@@ -1763,6 +1922,7 @@ public class MainActivity extends AppCompatActivity {
         List<ListItem> listItems = buildAlbumListWithHeaders();
         albumAdapter = new GenericListAdapter(listItems);
         albumsRecyclerView.setAdapter(albumAdapter);
+        if (currentTheme != null) albumAdapter.setTheme(currentTheme);
         albumAdapter.setOnItemClickListener(item -> {
             if (item.getType() == ListItem.TYPE_HEADER) {
                 showAlphabetPopupForAlbums();
@@ -1816,6 +1976,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         SongAdapter sa = new SongAdapter(items);
+        if (currentTheme != null) sa.setTheme(currentTheme);
         sa.setOnItemClickListener((song, pos) -> {
             // pos is position within this items list; translate to global index via queueIndices
             if (pos >= 0 && pos < queueIndices.size()) {
@@ -2010,11 +2171,15 @@ public class MainActivity extends AppCompatActivity {
         NotificationCompat.Action closeAction = new NotificationCompat.Action(
                 android.R.drawable.ic_menu_close_clear_cancel, "Stop", buildPendingIntent(ACTION_CLOSE, 4));
 
+        int notificationAccent = currentTheme != null
+                ? currentTheme.accentColor
+                : ContextCompat.getColor(this, R.color.player_accent);
+
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_media_play)
                 .setContentTitle(song.getTitle())
                 .setContentText(song.getArtist() == null ? "" : song.getArtist())
-                .setColor(ContextCompat.getColor(this, R.color.player_accent))
+                .setColor(notificationAccent)
                 .setContentIntent(contentIntent)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setOnlyAlertOnce(true)
@@ -2269,6 +2434,7 @@ public class MainActivity extends AppCompatActivity {
 
         if (playlistsRecyclerView != null) {
             playlistAdapter = new PlaylistAdapter(this, playlists, (p, pos) -> showPlaylistInPlaylistSection(p));
+            if (currentTheme != null) playlistAdapter.setTheme(currentTheme);
             playlistAdapter.setOnItemLongClickListener((p, pos) -> {
                 if ("Favorites".equalsIgnoreCase(p.getName())) {
                     Toast.makeText(this, "Cannot delete Favorites", Toast.LENGTH_SHORT).show();
@@ -2385,6 +2551,7 @@ public class MainActivity extends AppCompatActivity {
             }
 
             SongAdapter sa = new SongAdapter(items);
+            if (currentTheme != null) sa.setTheme(currentTheme);
             sa.setOnItemClickListener((song, pos) -> startPlaybackWithQueue(pos, queueIndices));
             sa.setOnItemLongClickListener((song, pos) -> {
                 new androidx.appcompat.app.AlertDialog.Builder(this)
@@ -2448,6 +2615,7 @@ public class MainActivity extends AppCompatActivity {
         }
         adapter = new SongAdapter(items);
         recyclerView.setAdapter(adapter);
+        if (currentTheme != null) adapter.setTheme(currentTheme);
         adapter.setOnItemClickListener((song, pos) -> startPlayback(pos));
         adapter.setOnItemLongClickListener((song, pos) -> {
             // remove from playlist
@@ -2471,6 +2639,7 @@ public class MainActivity extends AppCompatActivity {
         List<ListItem> listItems = buildListWithHeaders();
         adapter = new SongAdapter(listItems);
         recyclerView.setAdapter(adapter);
+        if (currentTheme != null) adapter.setTheme(currentTheme);
         adapter.setOnItemClickListener((song, position) -> openSong(position));
         adapter.setOnHeaderClickListener(this::showAlphabetPopup);
         adapter.setOnItemLongClickListener((song, position) -> {});
