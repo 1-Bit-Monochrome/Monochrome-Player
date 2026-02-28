@@ -6,3 +6,5 @@ Monochrome-Music Player
 > first initialize the "master" repo and start the IDE setup/sync
 
 > then checkout on another branch first before starting
+
+App source code is Java-only (no Kotlin sources).
