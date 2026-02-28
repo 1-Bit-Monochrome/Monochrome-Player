@@ -13,6 +13,7 @@ import android.widget.ImageView;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.core.content.ContextCompat;
 import java.util.List;
 
 public class PlaylistAdapter extends RecyclerView.Adapter<PlaylistAdapter.PlaylistViewHolder> {
@@ -20,6 +21,7 @@ public class PlaylistAdapter extends RecyclerView.Adapter<PlaylistAdapter.Playli
     private final OnItemClickListener listener;
     private final Context context;
     private OnItemLongClickListener longClickListener;
+    private ThemeColors currentTheme;
 
     public interface OnItemClickListener { void onItemClick(Playlist p, int position); }
     public interface OnItemLongClickListener { void onItemLongClick(Playlist p, int position); }
@@ -31,6 +33,10 @@ public class PlaylistAdapter extends RecyclerView.Adapter<PlaylistAdapter.Playli
     }
 
     public void setOnItemLongClickListener(OnItemLongClickListener l) { this.longClickListener = l; }
+    public void setTheme(ThemeColors theme) {
+        this.currentTheme = theme;
+        notifyDataSetChanged();
+    }
 
     @NonNull
     @Override
@@ -51,6 +57,12 @@ public class PlaylistAdapter extends RecyclerView.Adapter<PlaylistAdapter.Playli
         }
         if (thumb != null) holder.thumb.setImageDrawable(thumb);
         else holder.thumb.setImageResource(R.mipmap.ic_launcher);
+        if (currentTheme != null) {
+            holder.name.setTextColor(currentTheme.onSurfaceColor);
+            holder.count.setTextColor(currentTheme.onSurfaceVariantColor);
+            holder.itemView.setBackgroundColor(currentTheme.listSurfaceColor);
+            holder.itemView.setForeground(ContextCompat.getDrawable(context, android.R.drawable.list_selector_background));
+        }
 
         holder.itemView.setClickable(true);
         holder.itemView.setOnClickListener(v -> {
