@@ -6,6 +6,7 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.core.content.ContextCompat;
 import java.util.List;
 
 public class GenericListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
@@ -74,6 +75,13 @@ public class GenericListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             ArtistViewHolder artistHolder = (ArtistViewHolder) holder;
             artistHolder.nameText.setText(artist.getName());
             artistHolder.countText.setText(artist.getSongCount() + " songs");
+            if (currentTheme != null) {
+                artistHolder.nameText.setTextColor(currentTheme.onSurfaceColor);
+                artistHolder.countText.setTextColor(currentTheme.onSurfaceVariantColor);
+                artistHolder.itemView.setBackgroundColor(currentTheme.listSurfaceColor);
+                artistHolder.itemView.setForeground(ContextCompat.getDrawable(
+                        artistHolder.itemView.getContext(), android.R.drawable.list_selector_background));
+            }
             holder.itemView.setOnClickListener(v -> {
                 if (listener != null) {
                     listener.onItemClick(item);
@@ -85,6 +93,14 @@ public class GenericListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHo
             albumHolder.nameText.setText(album.getName());
             albumHolder.artistText.setText(album.getArtist());
             albumHolder.countText.setText(album.getSongCount() + " songs");
+            if (currentTheme != null) {
+                albumHolder.nameText.setTextColor(currentTheme.onSurfaceColor);
+                albumHolder.artistText.setTextColor(currentTheme.onSurfaceColor);
+                albumHolder.countText.setTextColor(currentTheme.onSurfaceVariantColor);
+                albumHolder.itemView.setBackgroundColor(currentTheme.listSurfaceColor);
+                albumHolder.itemView.setForeground(ContextCompat.getDrawable(
+                        albumHolder.itemView.getContext(), android.R.drawable.list_selector_background));
+            }
             holder.itemView.setOnClickListener(v -> {
                 if (listener != null) {
                     listener.onItemClick(item);

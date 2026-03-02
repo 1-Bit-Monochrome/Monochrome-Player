@@ -14,6 +14,9 @@ public class SettingsManager {
     private static final String KEY_INCLUDE_DOCUMENTS = "include_documents";
     private static final String KEY_INCLUDE_MUSIC = "include_music";
     private static final String KEY_PLAYLISTS = "playlists_json";
+    private static final String KEY_GENRE_ONBOARDING_SEEN = "genre_onboarding_seen";
+    private static final String KEY_GENRE_INITIAL_ANALYSIS_DONE = "genre_initial_analysis_done";
+    private static final String KEY_APP_ONBOARDING_COMPLETED = "app_onboarding_completed";
     
     public static final String THEME_ANDROID = "android";
     public static final String THEME_MATERIAL_YOU = "material_you";
@@ -158,5 +161,29 @@ public class SettingsManager {
 
     public void updatePlaylists(java.util.List<Playlist> pls) {
         savePlaylists(pls);
+    }
+
+    public boolean isGenreOnboardingSeen() {
+        return prefs.getBoolean(KEY_GENRE_ONBOARDING_SEEN, false);
+    }
+
+    public void setGenreOnboardingSeen(boolean seen) {
+        prefs.edit().putBoolean(KEY_GENRE_ONBOARDING_SEEN, seen).apply();
+    }
+
+    public boolean isGenreInitialAnalysisDone() {
+        return prefs.getBoolean(KEY_GENRE_INITIAL_ANALYSIS_DONE, false);
+    }
+
+    public void setGenreInitialAnalysisDone(boolean done) {
+        prefs.edit().putBoolean(KEY_GENRE_INITIAL_ANALYSIS_DONE, done).apply();
+    }
+
+    public boolean isAppOnboardingCompleted() {
+        return prefs.getBoolean(KEY_APP_ONBOARDING_COMPLETED, false);
+    }
+
+    public void setAppOnboardingCompleted(boolean completed) {
+        prefs.edit().putBoolean(KEY_APP_ONBOARDING_COMPLETED, completed).apply();
     }
 }

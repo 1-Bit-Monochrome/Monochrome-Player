@@ -17,6 +17,7 @@
     app:strokeColor="@android:color/transparent">
 
     <LinearLayout
+        android:id="@+id/full_player_background"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
@@ -122,8 +123,8 @@
         <ir.mahozad.multiplatform.wavyslider.WavySlider
             android:id="@+id/full_wavy_seekbar"
             android:layout_width="match_parent"
-            android:layout_height="64dp"
-            android:layout_marginTop="12dp"
+            android:layout_height="68dp"
+            android:layout_marginTop="8dp"
             android:layout_marginBottom="12dp" />
 
         <LinearLayout
