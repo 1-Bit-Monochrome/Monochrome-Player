@@ -37,6 +37,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.LinearInterpolator;
+import android.view.animation.OvershootInterpolator;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
@@ -73,12 +74,20 @@ import com.google.android.material.navigationrail.NavigationRailView;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MainActivity extends AppCompatActivity {
 
     private final List<Song> songs = new ArrayList<>();
+    private GenreClassifier genreClassifier;
+    private final Map<String, String> songGenreByPath = new HashMap<>();
+    private boolean isGenreMode = false;
+    private final AtomicBoolean isGenreAnalysisRunning = new AtomicBoolean(false);
     private final List<Artist> artists = new ArrayList<>();
     private final List<Album> albums = new ArrayList<>();
     private SongAdapter adapter;
@@ -139,6 +148,29 @@ public class MainActivity extends AppCompatActivity {
     private TextView settingsWallpaperHeading;
     private TextView settingsMusicHeading;
     private TextView foldersHint;
+
+    // Onboarding
+    private View onboardingOverlay;
+    private View onboardingPageWelcome;
+    private View onboardingPageTheme;
+    private View onboardingPageAi;
+    private View onboardingPageDone;
+    private com.google.android.material.button.MaterialButton onboardingBackButton;
+    private com.google.android.material.button.MaterialButton onboardingNextButton;
+    private com.google.android.material.button.MaterialButton onboardingThemeAndroid;
+    private com.google.android.material.button.MaterialButton onboardingThemeMaterialYou;
+    private com.google.android.material.button.MaterialButton onboardingThemeMonochrome;
+    private com.google.android.material.button.MaterialButton onboardingThemeBozkurt;
+    private com.google.android.material.button.MaterialButton onboardingThemeMecha;
+    private View onboardingAiFoundContainer;
+    private View onboardingAiMissingContainer;
+    private com.google.android.material.button.MaterialButton onboardingAiScanButton;
+    private android.widget.ProgressBar onboardingAiProgressBar;
+    private TextView onboardingAiProgressText;
+    private int onboardingStep = 0;
+    private boolean isOnboardingVisible = false;
+    private boolean pendingOnboardingScanAfterPermission = false;
+    private boolean onboardingAnalysisCompleted = false;
 
     // Player UI - Mini Player
     private View playerSheet;
@@ -245,6 +277,7 @@ public class MainActivity extends AppCompatActivity {
         
         // Apply theme before setting content view
         settingsManager = new SettingsManager(this);
+        genreClassifier = new GenreClassifier(this);
         applyThemeColors();
         
         EdgeToEdge.enable(this);
@@ -360,6 +393,27 @@ public class MainActivity extends AppCompatActivity {
                         loadSongs();
                         loadArtists();
                         loadAlbums();
+                        if (pendingOnboardingScanAfterPermission) {
+                            pendingOnboardingScanAfterPermission = false;
+                            runFullLibraryGenreAnalysis(true, new GenreAnalysisListener() {
+                                @Override
+                                public void onStart(int totalSongs) {
+                                    updateOnboardingAnalysisProgress(0, totalSongs);
+                                }
+
+                                @Override
+                                public void onProgress(int doneSongs, int totalSongs) {
+                                    updateOnboardingAnalysisProgress(doneSongs, totalSongs);
+                                }
+
+                                @Override
+                                public void onComplete(int doneSongs, int totalSongs) {
+                                    onboardingAnalysisCompleted = true;
+                                    updateOnboardingAnalysisProgress(doneSongs, totalSongs);
+                                    if (onboardingAiScanButton != null) onboardingAiScanButton.setEnabled(false);
+                                }
+                            });
+                        }
                     } else {
                         showEmptyState(R.string.empty_state_no_permission);
                         Toast.makeText(this, "Permission denied. Cannot load songs.", Toast.LENGTH_SHORT).show();
@@ -428,6 +482,7 @@ public class MainActivity extends AppCompatActivity {
         setupMediaSessionAndNotifications();
         setupPlayerSheet();
         setupBackHandling();
+        setupOnboardingViews();
 
         navigationRailView.setOnItemSelectedListener(item -> {
             int itemId = item.getItemId();
@@ -435,7 +490,15 @@ public class MainActivity extends AppCompatActivity {
                 showNowPlaying();
                 return true;
             } else if (itemId == R.id.nav_tracks) {
+                isGenreMode = false;
                 showSection(tracksContainer);
+                return true;
+            } else if (itemId == R.id.nav_genre) {
+                isGenreMode = true;
+                showSection(tracksContainer);
+                if (settingsManager != null && settingsManager.isGenreOnboardingSeen() && !settingsManager.isGenreInitialAnalysisDone()) {
+                    runFullLibraryGenreAnalysis(false);
+                }
                 return true;
             } else if (itemId == R.id.nav_artists) {
                 showSection(artistsContainer);
@@ -456,7 +519,14 @@ public class MainActivity extends AppCompatActivity {
         showSection(tracksContainer);
 
         applyThemeDynamically();
-        checkPermissionsAndLoadSongs();
+
+        if (settingsManager != null && !settingsManager.isAppOnboardingCompleted()) {
+            if (!showOnboarding()) {
+                checkPermissionsAndLoadSongs();
+            }
+        } else {
+            checkPermissionsAndLoadSongs();
+        }
     }
 
     private void checkPermissionsAndLoadSongs() {
@@ -556,6 +626,8 @@ public class MainActivity extends AppCompatActivity {
                 cursor.close();
             }
         }
+
+        buildGenreIndex();
         
         List<ListItem> listItems = buildListWithHeaders();
         adapter = new SongAdapter(listItems);
@@ -569,6 +641,13 @@ public class MainActivity extends AppCompatActivity {
         } else {
             hideEmptyState();
         }
+
+        maybeShowGenreOnboarding();
+
+        if (isGenreMode) {
+            restoreGenreSongList();
+        }
+
         playerSheet.post(this::ensurePlayerSheetVisible);
     }
 
@@ -661,6 +740,337 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
                 items.add(ListItem.createSong(song, i));
+            }
+        }
+        return items;
+    }
+
+    private void buildGenreIndex() {
+        songGenreByPath.clear();
+        for (Song song : songs) {
+            if (song == null || song.getPath() == null) continue;
+            songGenreByPath.put(song.getPath(), genreClassifier.classify(song));
+        }
+    }
+
+    private void maybeShowGenreOnboarding() {
+        if (settingsManager == null) return;
+        if (!settingsManager.isAppOnboardingCompleted()) return;
+        if (settingsManager.isGenreOnboardingSeen()) return;
+        settingsManager.setGenreOnboardingSeen(true);
+    }
+
+    private void runFullLibraryGenreAnalysis(boolean fromOnboarding) {
+        runFullLibraryGenreAnalysis(fromOnboarding, null);
+    }
+
+    private void runFullLibraryGenreAnalysis(boolean fromOnboarding, GenreAnalysisListener listener) {
+        if (!isGenreAnalysisRunning.compareAndSet(false, true)) {
+            Toast.makeText(this, "Genre analysis is already running", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        List<Song> snapshot = new ArrayList<>(songs);
+        if (snapshot.isEmpty()) {
+            isGenreAnalysisRunning.set(false);
+            Toast.makeText(this, "No songs available for analysis", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Toast.makeText(this, "AI analysis started for " + snapshot.size() + " songs", Toast.LENGTH_SHORT).show();
+        if (listener != null) listener.onStart(snapshot.size());
+
+        new Thread(() -> {
+            Map<String, String> analyzed = new HashMap<>();
+            int processed = 0;
+            int total = snapshot.size();
+
+            for (Song song : snapshot) {
+                if (song == null || song.getPath() == null) continue;
+                String genre = genreClassifier.classify(song);
+                if (genre == null || genre.trim().isEmpty()) genre = GenreClassifier.UNKNOWN_GENRE;
+                analyzed.put(song.getPath(), genre);
+                processed++;
+
+                int progressDone = processed;
+                if (listener != null && (progressDone == total || progressDone % 5 == 0)) {
+                    runOnUiThread(() -> listener.onProgress(progressDone, total));
+                }
+            }
+
+            int finalProcessed = processed;
+            runOnUiThread(() -> {
+                songGenreByPath.clear();
+                songGenreByPath.putAll(analyzed);
+                settingsManager.setGenreInitialAnalysisDone(true);
+                isGenreAnalysisRunning.set(false);
+
+                if (isGenreMode) {
+                    restoreGenreSongList();
+                }
+
+                String doneMessage = fromOnboarding
+                        ? "Onboarding analysis complete: " + finalProcessed + " songs"
+                        : "Genre analysis complete: " + finalProcessed + " songs";
+                Toast.makeText(this, doneMessage, Toast.LENGTH_LONG).show();
+                if (listener != null) listener.onComplete(finalProcessed, total);
+            });
+        }).start();
+    }
+
+    private interface GenreAnalysisListener {
+        void onStart(int totalSongs);
+        void onProgress(int doneSongs, int totalSongs);
+        void onComplete(int doneSongs, int totalSongs);
+    }
+
+    private void setupOnboardingViews() {
+        onboardingOverlay = findViewById(R.id.onboarding_overlay_include);
+        if (onboardingOverlay == null) {
+            onboardingOverlay = findViewById(R.id.onboarding_overlay);
+        }
+        if (onboardingOverlay == null) return;
+
+        onboardingPageWelcome = findViewById(R.id.onboarding_page_welcome);
+        onboardingPageTheme = findViewById(R.id.onboarding_page_theme);
+        onboardingPageAi = findViewById(R.id.onboarding_page_ai);
+        onboardingPageDone = findViewById(R.id.onboarding_page_done);
+
+        onboardingBackButton = findViewById(R.id.onboarding_back_button);
+        onboardingNextButton = findViewById(R.id.onboarding_next_button);
+
+        onboardingThemeAndroid = findViewById(R.id.onboarding_theme_android);
+        onboardingThemeMaterialYou = findViewById(R.id.onboarding_theme_material_you);
+        onboardingThemeMonochrome = findViewById(R.id.onboarding_theme_monochrome);
+        onboardingThemeBozkurt = findViewById(R.id.onboarding_theme_bozkurt);
+        onboardingThemeMecha = findViewById(R.id.onboarding_theme_mecha);
+
+        onboardingAiFoundContainer = findViewById(R.id.onboarding_ai_found_container);
+        onboardingAiMissingContainer = findViewById(R.id.onboarding_ai_missing_container);
+        onboardingAiScanButton = findViewById(R.id.onboarding_ai_scan_button);
+        onboardingAiProgressBar = findViewById(R.id.onboarding_ai_progress_bar);
+        onboardingAiProgressText = findViewById(R.id.onboarding_ai_progress_text);
+
+        if (onboardingBackButton != null) {
+            onboardingBackButton.setOnClickListener(v -> moveOnboardingBack());
+        }
+        if (onboardingNextButton != null) {
+            onboardingNextButton.setOnClickListener(v -> moveOnboardingNext());
+        }
+
+        setupOnboardingThemeButtons();
+
+        if (onboardingAiScanButton != null) {
+            onboardingAiScanButton.setOnClickListener(v -> {
+                if (!hasReadMediaPermission()) {
+                    pendingOnboardingScanAfterPermission = true;
+                    String permission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                            ? Manifest.permission.READ_MEDIA_AUDIO
+                            : Manifest.permission.READ_EXTERNAL_STORAGE;
+                    requestPermissionLauncher.launch(permission);
+                    return;
+                }
+
+                if (songs.isEmpty()) {
+                    loadSongs();
+                }
+
+                runFullLibraryGenreAnalysis(true, new GenreAnalysisListener() {
+                    @Override
+                    public void onStart(int totalSongs) {
+                        updateOnboardingAnalysisProgress(0, totalSongs);
+                    }
+
+                    @Override
+                    public void onProgress(int doneSongs, int totalSongs) {
+                        updateOnboardingAnalysisProgress(doneSongs, totalSongs);
+                    }
+
+                    @Override
+                    public void onComplete(int doneSongs, int totalSongs) {
+                        onboardingAnalysisCompleted = true;
+                        updateOnboardingAnalysisProgress(doneSongs, totalSongs);
+                        if (onboardingAiScanButton != null) onboardingAiScanButton.setEnabled(false);
+                    }
+                });
+            });
+        }
+    }
+
+    private void setupOnboardingThemeButtons() {
+        if (onboardingThemeAndroid != null) {
+            onboardingThemeAndroid.setOnClickListener(v -> applyThemeFromOnboarding(SettingsManager.THEME_ANDROID));
+        }
+        if (onboardingThemeMaterialYou != null) {
+            onboardingThemeMaterialYou.setOnClickListener(v -> applyThemeFromOnboarding(SettingsManager.THEME_MATERIAL_YOU));
+        }
+        if (onboardingThemeMonochrome != null) {
+            onboardingThemeMonochrome.setOnClickListener(v -> applyThemeFromOnboarding(SettingsManager.THEME_MONOCHROME));
+        }
+        if (onboardingThemeBozkurt != null) {
+            onboardingThemeBozkurt.setOnClickListener(v -> applyThemeFromOnboarding(SettingsManager.THEME_BOZKURT));
+        }
+        if (onboardingThemeMecha != null) {
+            onboardingThemeMecha.setOnClickListener(v -> applyThemeFromOnboarding(SettingsManager.THEME_MECHA));
+        }
+    }
+
+    private void applyThemeFromOnboarding(String themeKey) {
+        settingsManager.setTheme(themeKey);
+        applyThemeDynamically();
+        updateSettingsButtonStates();
+        updateOnboardingThemeButtonStates();
+    }
+
+    private boolean showOnboarding() {
+        if (onboardingOverlay == null) return false;
+        isOnboardingVisible = true;
+        onboardingStep = 0;
+        onboardingOverlay.setVisibility(View.VISIBLE);
+        applyOnboardingTheme();
+        refreshOnboardingStep();
+        return true;
+    }
+
+    private void moveOnboardingNext() {
+        if (!isOnboardingVisible) return;
+
+        if (onboardingStep == 2) {
+            boolean modelReady = genreClassifier != null && genreClassifier.isLocalModelReady();
+            if (modelReady && !onboardingAnalysisCompleted && !settingsManager.isGenreInitialAnalysisDone()) {
+                Toast.makeText(this, "Run AI scan first to continue", Toast.LENGTH_SHORT).show();
+                return;
+            }
+        }
+
+        if (onboardingStep >= 3) {
+            finishOnboarding();
+            return;
+        }
+        onboardingStep++;
+        refreshOnboardingStep();
+    }
+
+    private void moveOnboardingBack() {
+        if (!isOnboardingVisible) return;
+        if (onboardingStep <= 0) return;
+        onboardingStep--;
+        refreshOnboardingStep();
+    }
+
+    private void refreshOnboardingStep() {
+        if (onboardingPageWelcome == null) return;
+
+        onboardingPageWelcome.setVisibility(onboardingStep == 0 ? View.VISIBLE : View.GONE);
+        onboardingPageTheme.setVisibility(onboardingStep == 1 ? View.VISIBLE : View.GONE);
+        onboardingPageAi.setVisibility(onboardingStep == 2 ? View.VISIBLE : View.GONE);
+        onboardingPageDone.setVisibility(onboardingStep == 3 ? View.VISIBLE : View.GONE);
+
+        View active = onboardingPageWelcome;
+        if (onboardingStep == 1) active = onboardingPageTheme;
+        else if (onboardingStep == 2) active = onboardingPageAi;
+        else if (onboardingStep == 3) active = onboardingPageDone;
+        animateOnboardingPage(active);
+
+        if (onboardingBackButton != null) {
+            onboardingBackButton.setEnabled(onboardingStep > 0);
+            onboardingBackButton.setAlpha(onboardingStep > 0 ? 1f : 0.4f);
+        }
+        if (onboardingNextButton != null) {
+            onboardingNextButton.setText(onboardingStep == 3 ? "Start" : "Next");
+        }
+
+        if (onboardingStep == 1) {
+            updateOnboardingThemeButtonStates();
+        }
+        if (onboardingStep == 2) {
+            refreshOnboardingAiStep();
+        }
+    }
+
+    private void animateOnboardingPage(View page) {
+        if (page == null) return;
+        page.setAlpha(0f);
+        page.setTranslationY(dpToPx(18));
+        page.setScaleX(0.97f);
+        page.setScaleY(0.97f);
+        page.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(360)
+                .setInterpolator(new OvershootInterpolator(0.8f))
+                .start();
+    }
+
+    private void refreshOnboardingAiStep() {
+        boolean modelReady = genreClassifier != null && genreClassifier.isLocalModelReady();
+        if (onboardingAiFoundContainer != null) {
+            onboardingAiFoundContainer.setVisibility(modelReady ? View.VISIBLE : View.GONE);
+        }
+        if (onboardingAiMissingContainer != null) {
+            onboardingAiMissingContainer.setVisibility(modelReady ? View.GONE : View.VISIBLE);
+        }
+
+        if (onboardingAiProgressBar != null && settingsManager.isGenreInitialAnalysisDone()) {
+            onboardingAiProgressBar.setProgress(100);
+            if (onboardingAiProgressText != null) {
+                onboardingAiProgressText.setText("Analysis complete");
+            }
+            onboardingAnalysisCompleted = true;
+            if (onboardingAiScanButton != null) onboardingAiScanButton.setEnabled(false);
+        }
+    }
+
+    private void updateOnboardingAnalysisProgress(int done, int total) {
+        if (onboardingAiProgressBar != null) {
+            onboardingAiProgressBar.setMax(Math.max(total, 1));
+            onboardingAiProgressBar.setProgress(Math.min(done, Math.max(total, 1)));
+        }
+        if (onboardingAiProgressText != null) {
+            onboardingAiProgressText.setText("Analyzed " + done + " / " + total + " songs");
+        }
+    }
+
+    private void updateOnboardingThemeButtonStates() {
+        String currentThemeStr = settingsManager.getTheme();
+        styleSettingsButton(onboardingThemeAndroid, currentThemeStr.equals(SettingsManager.THEME_ANDROID));
+        styleSettingsButton(onboardingThemeMaterialYou, currentThemeStr.equals(SettingsManager.THEME_MATERIAL_YOU));
+        styleSettingsButton(onboardingThemeMonochrome, currentThemeStr.equals(SettingsManager.THEME_MONOCHROME));
+        styleSettingsButton(onboardingThemeBozkurt, currentThemeStr.equals(SettingsManager.THEME_BOZKURT));
+        styleSettingsButton(onboardingThemeMecha, currentThemeStr.equals(SettingsManager.THEME_MECHA));
+    }
+
+    private void finishOnboarding() {
+        if (settingsManager != null) {
+            settingsManager.setAppOnboardingCompleted(true);
+            settingsManager.setGenreOnboardingSeen(true);
+        }
+        isOnboardingVisible = false;
+        if (onboardingOverlay != null) onboardingOverlay.setVisibility(View.GONE);
+        checkPermissionsAndLoadSongs();
+    }
+
+    private List<ListItem> buildGenreListWithHeaders() {
+        List<ListItem> items = new ArrayList<>();
+        if (songs.isEmpty()) return items;
+
+        Map<String, List<Integer>> genreBuckets = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (int i = 0; i < songs.size(); i++) {
+            Song song = songs.get(i);
+            String genre = songGenreByPath.get(song.getPath());
+            if (genre == null || genre.trim().isEmpty()) {
+                genre = GenreClassifier.UNKNOWN_GENRE;
+            }
+            genreBuckets.computeIfAbsent(genre, key -> new ArrayList<>()).add(i);
+        }
+
+        for (Map.Entry<String, List<Integer>> entry : genreBuckets.entrySet()) {
+            items.add(ListItem.createHeader(entry.getKey()));
+            for (Integer songIndex : entry.getValue()) {
+                if (songIndex == null || songIndex < 0 || songIndex >= songs.size()) continue;
+                items.add(ListItem.createSong(songs.get(songIndex), songIndex));
             }
         }
         return items;
@@ -1093,6 +1503,11 @@ public class MainActivity extends AppCompatActivity {
                     
                     // Update all buttons in settings
                     updateSettingsButtonStates();
+                    updateOnboardingThemeButtonStates();
+
+                    if (onboardingOverlay != null && onboardingOverlay.getVisibility() == View.VISIBLE) {
+                        applyOnboardingTheme();
+                    }
                     
                     if (adapter != null) adapter.setTheme(currentTheme);
                     if (artistAdapter != null) artistAdapter.setTheme(currentTheme);
@@ -1106,6 +1521,40 @@ public class MainActivity extends AppCompatActivity {
                             .start();
                 })
                 .start();
+    }
+
+    private void applyOnboardingTheme() {
+        if (onboardingOverlay == null || currentTheme == null) return;
+        onboardingOverlay.setBackgroundColor(blendColors(currentTheme.backgroundColor, Color.BLACK, 0.45f));
+        View onboardingCard = findViewById(R.id.onboarding_card);
+        if (onboardingCard != null) {
+            onboardingCard.setBackgroundColor(blendColors(currentTheme.surfaceColor, Color.BLACK, 0.15f));
+        }
+
+        int[] titleIds = new int[]{
+                R.id.onboarding_welcome_title,
+                R.id.onboarding_theme_title,
+                R.id.onboarding_ai_title,
+                R.id.onboarding_done_title
+        };
+        for (int id : titleIds) {
+            TextView textView = findViewById(id);
+            if (textView != null) textView.setTextColor(currentTheme.onSurfaceColor);
+        }
+
+        int[] bodyIds = new int[]{
+                R.id.onboarding_ai_found_text,
+                R.id.onboarding_ai_missing_text,
+                R.id.onboarding_ai_progress_text
+        };
+        for (int id : bodyIds) {
+            TextView textView = findViewById(id);
+            if (textView != null) textView.setTextColor(currentTheme.onSurfaceVariantColor);
+        }
+
+        styleSettingsButton(onboardingBackButton, true);
+        styleSettingsButton(onboardingNextButton, true);
+        styleSettingsButton(onboardingAiScanButton, true);
     }
     
     private void applyThemeToPlayer() {
@@ -2365,8 +2814,11 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (targetSection == tracksContainer) {
-            // Always restore the full songs listing when viewing Tracks
-            restoreFullSongList();
+            if (isGenreMode) {
+                restoreGenreSongList();
+            } else {
+                restoreFullSongList();
+            }
             if (songs.isEmpty()) {
                 showEmptyState(hasReadMediaPermission() ? R.string.empty_state_no_music : R.string.empty_state_no_permission);
             } else {
@@ -2638,6 +3090,18 @@ public class MainActivity extends AppCompatActivity {
         currentPlaylistViewing = null;
         List<ListItem> listItems = buildListWithHeaders();
         adapter = new SongAdapter(listItems);
+        recyclerView.setAdapter(adapter);
+        if (currentTheme != null) adapter.setTheme(currentTheme);
+        adapter.setOnItemClickListener((song, position) -> openSong(position));
+        adapter.setOnHeaderClickListener(this::showAlphabetPopup);
+        adapter.setOnItemLongClickListener((song, position) -> {});
+        if (playlistAddInTracks != null) playlistAddInTracks.setVisibility(View.GONE);
+    }
+
+    private void restoreGenreSongList() {
+        currentPlaylistViewing = null;
+        List<ListItem> genreItems = buildGenreListWithHeaders();
+        adapter = new SongAdapter(genreItems);
         recyclerView.setAdapter(adapter);
         if (currentTheme != null) adapter.setTheme(currentTheme);
         adapter.setOnItemClickListener((song, position) -> openSong(position));
