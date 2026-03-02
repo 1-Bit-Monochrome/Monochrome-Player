@@ -3,6 +3,7 @@
     <string name="empty_state_no_permission">Grant media access to show your songs.</string>
     <string name="empty_state_no_music">No songs found on this device.</string>
     <string name="nav_tracks">Tracks</string>
+    <string name="nav_genre">Genre</string>
     <string name="nav_artists">Artists</string>
     <string name="nav_playlists">Playlists</string>
     <string name="nav_albums">Albums</string>
@@ -40,4 +41,10 @@
     <string name="add_to_playlist">Add to playlist</string>
     <string name="create_playlist">Create playlist</string>
     <string name="favorite">Favorite</string>
+    <string name="onboarding_welcome">Welcome to your smart Music Player!</string>
+    <string name="onboarding_theme_title">Choose your theme</string>
+    <string name="onboarding_ai_title">AI Setup</string>
+    <string name="onboarding_ai_found">AI Model found! Do a full scan of your library with the button below!</string>
+    <string name="onboarding_ai_missing">Uh Oh... We could not find a model! You sure the App is from the Play Store? :) Write us a mail; Let us see if we can sort it out</string>
+    <string name="onboarding_done">You are all set up! Enjoy!</string>
 </resources>
