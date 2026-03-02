@@ -8,11 +8,13 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 import com.google.android.material.card.MaterialCardView;
+import androidx.core.graphics.ColorUtils;
 
 public class ThemeColors {
     public int accentColor;
     public int backgroundColor;
     public int surfaceColor;
+    public int listSurfaceColor;
     public int onSurfaceColor;
     public int onSurfaceVariantColor;
     public int primaryColor;
@@ -23,45 +25,48 @@ public class ThemeColors {
         
         switch (theme) {
             case SettingsManager.THEME_MONOCHROME:
-                colors.accentColor = Color.WHITE;
-                colors.backgroundColor = Color.BLACK;
-                colors.surfaceColor = 0xFF1A1A1A;
-                colors.onSurfaceColor = Color.WHITE;
-                colors.onSurfaceVariantColor = 0xFFB0B0B0;
-                colors.primaryColor = Color.WHITE;
-                colors.secondaryColor = 0xFF808080;
+                colors.accentColor = 0xFFE0E0E0;
+                colors.backgroundColor = 0xFF000000;
+                colors.surfaceColor = 0xFF0A0A0A;
+                colors.listSurfaceColor = colors.surfaceColor;
+                colors.onSurfaceColor = 0xFFF5F5F5;
+                colors.onSurfaceVariantColor = 0xFFCCCCCC;
+                colors.primaryColor = 0xFFFFFFFF;
+                colors.secondaryColor = 0xFF7A7A7A;
                 break;
                 
             case SettingsManager.THEME_MATERIAL_YOU:
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    colors.accentColor = context.getColor(android.R.color.system_accent1_500);
+                    colors.accentColor = context.getColor(android.R.color.system_accent1_400);
                     colors.backgroundColor = context.getColor(android.R.color.system_neutral1_900);
-                    colors.surfaceColor = context.getColor(android.R.color.system_neutral1_800);
-                    colors.onSurfaceColor = context.getColor(android.R.color.system_neutral1_10);
-                    colors.onSurfaceVariantColor = context.getColor(android.R.color.system_neutral2_200);
-                    colors.primaryColor = context.getColor(android.R.color.system_accent1_400);
-                    colors.secondaryColor = context.getColor(android.R.color.system_accent2_400);
+                    colors.surfaceColor = context.getColor(android.R.color.system_neutral1_700);
+                    colors.listSurfaceColor = colors.surfaceColor;
+                    colors.onSurfaceColor = context.getColor(android.R.color.system_neutral1_50);
+                    colors.onSurfaceVariantColor = context.getColor(android.R.color.system_accent1_100);
+                    colors.primaryColor = context.getColor(android.R.color.system_accent1_200);
+                    colors.secondaryColor = context.getColor(android.R.color.system_accent2_200);
                 } else {
-                    // Fallback for older versions
-                    colors.accentColor = 0xFF2196F3;
-                    colors.backgroundColor = 0xFF0D47A1;
-                    colors.surfaceColor = 0xFF1565C0;
-                    colors.onSurfaceColor = Color.WHITE;
-                    colors.onSurfaceVariantColor = 0xFFBBDEFB;
-                    colors.primaryColor = 0xFF42A5F5;
-                    colors.secondaryColor = 0xFF64B5F6;
+                    colors.accentColor = 0xFF7CB8FF; // softer blue
+                    colors.backgroundColor = 0xFF11141A;
+                    colors.surfaceColor = 0xFF1A1F27;
+                    colors.listSurfaceColor = colors.surfaceColor;
+                    colors.onSurfaceColor = 0xFFE8ECF3;
+                    colors.onSurfaceVariantColor = 0xFFB7C5D9;
+                    colors.primaryColor = 0xFF9CC9FF;
+                    colors.secondaryColor = 0xFF8ED6C5;
                 }
                 break;
 
                 case SettingsManager.THEME_BOZKURT:
-                // Bozkurt: red + white accents
-                colors.accentColor = 0xFFE53935; // vivid red
-                colors.backgroundColor = 0xFF0F172A;
-                colors.surfaceColor = 0xFF111827;
-                colors.onSurfaceColor = Color.WHITE;
-                colors.onSurfaceVariantColor = 0xFFFFCDD2; // light red/pink variant
-                colors.primaryColor = Color.WHITE;
-                colors.secondaryColor = 0xFFE57373; // softer red
+                // Bozkurt: red-white palette
+                colors.accentColor = 0xFFEF233C; // vivid crimson
+                colors.backgroundColor = 0xFF0C0506; // deep near-black red
+                colors.surfaceColor = 0xFF14080A; // richer crimson surface
+                colors.listSurfaceColor = 0xCC14080A; // slight translucency for lists
+                colors.onSurfaceColor = 0xFFFFF7F5; // warm white text
+                colors.onSurfaceVariantColor = 0xFFFFB3B3; // soft blush for secondary
+                colors.primaryColor = 0xFFFFE5E5; // light rose highlight
+                colors.secondaryColor = 0xFFFF6F61; // coral secondary
                 break;
                 
             case SettingsManager.THEME_MECHA:
@@ -69,6 +74,7 @@ public class ThemeColors {
                 colors.accentColor = 0xFFE91E63; // accent red/pink
                 colors.backgroundColor = 0xFF071024; // very dark blue
                 colors.surfaceColor = 0xFF0B1624; // slightly lighter dark surface
+                colors.listSurfaceColor = ColorUtils.setAlphaComponent(colors.surfaceColor, 170); // translucent lists
                 colors.onSurfaceColor = Color.WHITE;
                 colors.onSurfaceVariantColor = 0xFF9C27B0; // violet variant
                 colors.primaryColor = 0xFF7C4DFF; // violet
@@ -77,14 +83,18 @@ public class ThemeColors {
                 
             case SettingsManager.THEME_ANDROID:
             default:
-                colors.accentColor = 0xFF4ADE80;
-                colors.backgroundColor = 0xFF0F172A;
-                colors.surfaceColor = 0xFF111827;
-                colors.onSurfaceColor = 0xFFE5E7EB;
-                colors.onSurfaceVariantColor = 0xFF9CA3AF;
-                colors.primaryColor = 0xFF4ADE80;
-                colors.secondaryColor = 0xFF34D399;
+                colors.accentColor = 0xFF53E28C; // calmer green
+                colors.backgroundColor = 0xFF0C1F16; // deep android dark
+                colors.surfaceColor = 0xFF122A1D;
+                colors.listSurfaceColor = colors.surfaceColor;
+                colors.onSurfaceColor = 0xFFE5FFF1;
+                colors.onSurfaceVariantColor = 0xFF9AD9BD;
+                colors.primaryColor = 0xFF6FF2A6;
+                colors.secondaryColor = 0xFF2FB07F;
                 break;
+        }
+        if (colors.listSurfaceColor == 0) {
+            colors.listSurfaceColor = colors.surfaceColor;
         }
         
         return colors;

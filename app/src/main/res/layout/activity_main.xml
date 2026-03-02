@@ -32,7 +32,7 @@
                 android:id="@+id/tracks_container"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:background="#1A1A1A">
+                android:background="@android:color/transparent">
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/recycler_view"
@@ -245,6 +245,7 @@
                 android:padding="16dp">
 
                 <TextView
+                    android:id="@+id/settings_title"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/settings_title"
@@ -253,6 +254,7 @@
                     android:paddingBottom="16dp" />
 
                 <TextView
+                    android:id="@+id/settings_theme_heading"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/settings_theme_section"
@@ -314,6 +316,7 @@
                 </LinearLayout>
 
                 <TextView
+                    android:id="@+id/settings_sort_heading"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/settings_sort_section"
@@ -348,6 +351,7 @@
 
                 <!-- Wallpaper controls -->
                 <TextView
+                    android:id="@+id/settings_wallpaper_heading"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/settings_wallpaper_section"
@@ -381,6 +385,7 @@
                 </LinearLayout>
 
                 <TextView
+                    android:id="@+id/settings_music_heading"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Music Folders"
@@ -446,35 +451,45 @@
                 </LinearLayout>
 
                 <TextView
+                    android:id="@+id/about_section_header"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/settings_about_section"
                     android:textAppearance="?attr/textAppearanceTitleMedium"
                     android:textColor="@color/player_accent"
                     android:paddingTop="16dp"
-                    android:paddingBottom="8dp" />
+                    android:paddingBottom="8dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackground" />
 
                 <TextView
+                    android:id="@+id/about_app_name"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/app_name"
                     android:textAppearance="?attr/textAppearanceBodyLarge"
                     android:textStyle="bold"
-                    android:paddingBottom="4dp" />
+                    android:paddingBottom="4dp"
+                    android:visibility="gone" />
 
                 <TextView
+                    android:id="@+id/about_version"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/settings_version"
                     android:textAppearance="?attr/textAppearanceBodyMedium"
-                    android:paddingBottom="4dp" />
+                    android:paddingBottom="4dp"
+                    android:visibility="gone" />
 
                 <TextView
+                    android:id="@+id/about_description"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/settings_description"
                     android:textAppearance="?attr/textAppearanceBodySmall"
-                    android:textColor="?attr/colorOnSurfaceVariant" />
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:visibility="gone" />
 
             </LinearLayout>
 
@@ -515,12 +530,13 @@
         app:cardCornerRadius="24dp"
         app:cardElevation="12dp"
         app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior"
-        app:behavior_peekHeight="88dp"
+        app:behavior_peekHeight="72dp"
         app:behavior_hideable="false"
         app:behavior_skipCollapsed="false"
         app:strokeColor="@android:color/transparent">
 
             <LinearLayout
+                android:id="@+id/player_sheet_background"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
@@ -620,6 +636,13 @@
                         android:textColor="@color/player_accent" />
                 </LinearLayout>
 
+                <ir.mahozad.multiplatform.wavyslider.WavySlider
+                    android:id="@+id/mini_wavy_seekbar"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="8dp" />
+
                 <LinearLayout
                     android:id="@+id/player_controls"
                     android:layout_width="match_parent"
@@ -680,5 +703,15 @@
         </com.google.android.material.card.MaterialCardView>
 
     </androidx.coordinatorlayout.widget.CoordinatorLayout>
+
+        <include
+            android:id="@+id/onboarding_overlay_include"
+            layout="@layout/onboarding_overlay"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

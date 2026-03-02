@@ -6,6 +6,7 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.core.content.ContextCompat;
 import java.util.List;
 
 public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
@@ -14,6 +15,7 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private OnItemClickListener listener;
     private OnHeaderClickListener headerClickListener;
     private OnItemLongClickListener longClickListener;
+    private ThemeColors currentTheme;
 
     public interface OnItemClickListener {
         void onItemClick(Song song, int position);
@@ -42,6 +44,11 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     public void setOnItemLongClickListener(OnItemLongClickListener l) { this.longClickListener = l; }
 
+    public void setTheme(ThemeColors theme) {
+        this.currentTheme = theme;
+        notifyDataSetChanged();
+    }
+
     @Override
     public int getItemViewType(int position) {
         return itemList.get(position).getType();
@@ -66,7 +73,11 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         ListItem item = itemList.get(position);
         
         if (holder instanceof HeaderViewHolder) {
-            ((HeaderViewHolder) holder).letterText.setText(item.getHeader());
+            HeaderViewHolder headerHolder = (HeaderViewHolder) holder;
+            headerHolder.letterText.setText(item.getHeader());
+            if (currentTheme != null) {
+                headerHolder.letterText.setTextColor(currentTheme.accentColor);
+            }
             holder.itemView.setOnClickListener(v -> {
                 if (headerClickListener != null) {
                     headerClickListener.onHeaderClick();
@@ -77,6 +88,13 @@ public class SongAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             SongViewHolder songHolder = (SongViewHolder) holder;
             songHolder.titleText.setText(song.getTitle());
             songHolder.artistText.setText(song.getArtist());
+            if (currentTheme != null) {
+                songHolder.titleText.setTextColor(currentTheme.onSurfaceColor);
+                songHolder.artistText.setTextColor(currentTheme.onSurfaceVariantColor);
+                songHolder.itemView.setBackgroundColor(currentTheme.listSurfaceColor);
+                songHolder.itemView.setForeground(ContextCompat.getDrawable(
+                        songHolder.itemView.getContext(), android.R.drawable.list_selector_background));
+            }
 
             songHolder.itemView.setOnClickListener(v -> {
                 if (listener != null) {

@@ -13,14 +13,17 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.database.Cursor;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.BitmapShader;
 import android.graphics.Shader;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaPlayer;
 import android.net.Uri;
@@ -34,6 +37,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.LinearInterpolator;
+import android.view.animation.OvershootInterpolator;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
@@ -63,18 +67,27 @@ import androidx.media.app.NotificationCompat.MediaStyle;
 import android.support.v4.media.session.MediaSessionCompat;
 
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.imageview.ShapeableImageView;
 import com.google.android.material.navigationrail.NavigationRailView;
 
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MainActivity extends AppCompatActivity {
 
     private final List<Song> songs = new ArrayList<>();
+    private GenreClassifier genreClassifier;
+    private final Map<String, String> songGenreByPath = new HashMap<>();
+    private boolean isGenreMode = false;
+    private final AtomicBoolean isGenreAnalysisRunning = new AtomicBoolean(false);
     private final List<Artist> artists = new ArrayList<>();
     private final List<Album> albums = new ArrayList<>();
     private SongAdapter adapter;
@@ -129,6 +142,35 @@ public class MainActivity extends AppCompatActivity {
     private CheckBox includeMusicCheckbox;
     private com.google.android.material.button.MaterialButton buttonAddFolder;
     private LinearLayout folderListContainerView;
+    private TextView settingsTitle;
+    private TextView settingsThemeHeading;
+    private TextView settingsSortHeading;
+    private TextView settingsWallpaperHeading;
+    private TextView settingsMusicHeading;
+    private TextView foldersHint;
+
+    // Onboarding
+    private View onboardingOverlay;
+    private View onboardingPageWelcome;
+    private View onboardingPageTheme;
+    private View onboardingPageAi;
+    private View onboardingPageDone;
+    private com.google.android.material.button.MaterialButton onboardingBackButton;
+    private com.google.android.material.button.MaterialButton onboardingNextButton;
+    private com.google.android.material.button.MaterialButton onboardingThemeAndroid;
+    private com.google.android.material.button.MaterialButton onboardingThemeMaterialYou;
+    private com.google.android.material.button.MaterialButton onboardingThemeMonochrome;
+    private com.google.android.material.button.MaterialButton onboardingThemeBozkurt;
+    private com.google.android.material.button.MaterialButton onboardingThemeMecha;
+    private View onboardingAiFoundContainer;
+    private View onboardingAiMissingContainer;
+    private com.google.android.material.button.MaterialButton onboardingAiScanButton;
+    private android.widget.ProgressBar onboardingAiProgressBar;
+    private TextView onboardingAiProgressText;
+    private int onboardingStep = 0;
+    private boolean isOnboardingVisible = false;
+    private boolean pendingOnboardingScanAfterPermission = false;
+    private boolean onboardingAnalysisCompleted = false;
 
     // Player UI - Mini Player
     private View playerSheet;
@@ -149,7 +191,7 @@ public class MainActivity extends AppCompatActivity {
     private int collapsedPeekHeight = 0;
 
     // Player UI - Full Player
-    private View fullPlayerSheet;
+    private MaterialCardView fullPlayerSheet;
     private TextView fullPlayerTitleView;
     private TextView fullPlayerArtistView;
     private TextView fullPlayerAlbumView;
@@ -164,10 +206,18 @@ public class MainActivity extends AppCompatActivity {
     private ImageButton fullFavoriteButton;
     private ObjectAnimator fullArtworkAnimator;
     
+    private ir.mahozad.multiplatform.wavyslider.WavySlider miniSeekBar;
+    private ir.mahozad.multiplatform.wavyslider.WavySlider fullSeekBar;
+    
+    private TextView aboutSectionHeader;
+    private TextView aboutAppName;
+    private TextView aboutVersion;
+    private TextView aboutDescription;
+    private boolean isAboutExpanded = false;
     
     // Background views for theming
     private View mainContentView;
-    private View playerSheetCard;
+    private MaterialCardView playerSheetCard;
 
     // Playback
     private MediaPlayer mediaPlayer;
@@ -181,6 +231,7 @@ public class MainActivity extends AppCompatActivity {
     private boolean backClickPending = false;
     private boolean forwardClickPending = false;
     private static final long DOUBLE_TAP_WINDOW_MS = 350L;
+    private static final int COLLAPSED_PEEK_HEIGHT_DP = 72;
     private final Runnable backSingleAction = () -> {
         backClickPending = false;
         seekBy(-10_000);
@@ -188,6 +239,23 @@ public class MainActivity extends AppCompatActivity {
     private final Runnable forwardSingleAction = () -> {
         forwardClickPending = false;
         seekBy(10_000);
+    };
+
+    private final Handler seekBarUpdateHandler = new Handler(Looper.getMainLooper());
+    private final Runnable seekBarUpdateRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+                int currentPos = mediaPlayer.getCurrentPosition();
+                int duration = mediaPlayer.getDuration();
+                if (duration > 0) {
+                    float progress = (float) currentPos / duration;
+                    if (miniSeekBar != null) miniSeekBar.setValue(progress);
+                    if (fullSeekBar != null) fullSeekBar.setValue(progress);
+                }
+            }
+            seekBarUpdateHandler.postDelayed(this, 100);
+        }
     };
 
     // Notification / media session
@@ -209,6 +277,7 @@ public class MainActivity extends AppCompatActivity {
         
         // Apply theme before setting content view
         settingsManager = new SettingsManager(this);
+        genreClassifier = new GenreClassifier(this);
         applyThemeColors();
         
         EdgeToEdge.enable(this);
@@ -239,8 +308,22 @@ public class MainActivity extends AppCompatActivity {
         sortAlphabeticalBtn = findViewById(R.id.sort_alphabetical);
         sortDateAddedBtn = findViewById(R.id.sort_date_added);
         
-        // Initialize background views for theming
-        mainContentView = findViewById(R.id.tracks_container);
+        settingsTitle = findViewById(R.id.settings_title);
+        aboutSectionHeader = findViewById(R.id.about_section_header);
+        aboutAppName = findViewById(R.id.about_app_name);
+        aboutVersion = findViewById(R.id.about_version);
+        aboutDescription = findViewById(R.id.about_description);
+        settingsThemeHeading = findViewById(R.id.settings_theme_heading);
+        settingsSortHeading = findViewById(R.id.settings_sort_heading);
+        settingsWallpaperHeading = findViewById(R.id.settings_wallpaper_heading);
+        settingsMusicHeading = findViewById(R.id.settings_music_heading);
+        foldersHint = findViewById(R.id.folders_hint);
+        
+        if (aboutSectionHeader != null) {
+            aboutSectionHeader.setOnClickListener(v -> toggleAboutSection());
+        }
+        
+        mainContentView = findViewById(R.id.content_container);
         playerSheetCard = findViewById(R.id.player_sheet);
         
         setupSettingsButtons();
@@ -310,6 +393,27 @@ public class MainActivity extends AppCompatActivity {
                         loadSongs();
                         loadArtists();
                         loadAlbums();
+                        if (pendingOnboardingScanAfterPermission) {
+                            pendingOnboardingScanAfterPermission = false;
+                            runFullLibraryGenreAnalysis(true, new GenreAnalysisListener() {
+                                @Override
+                                public void onStart(int totalSongs) {
+                                    updateOnboardingAnalysisProgress(0, totalSongs);
+                                }
+
+                                @Override
+                                public void onProgress(int doneSongs, int totalSongs) {
+                                    updateOnboardingAnalysisProgress(doneSongs, totalSongs);
+                                }
+
+                                @Override
+                                public void onComplete(int doneSongs, int totalSongs) {
+                                    onboardingAnalysisCompleted = true;
+                                    updateOnboardingAnalysisProgress(doneSongs, totalSongs);
+                                    if (onboardingAiScanButton != null) onboardingAiScanButton.setEnabled(false);
+                                }
+                            });
+                        }
                     } else {
                         showEmptyState(R.string.empty_state_no_permission);
                         Toast.makeText(this, "Permission denied. Cannot load songs.", Toast.LENGTH_SHORT).show();
@@ -378,6 +482,7 @@ public class MainActivity extends AppCompatActivity {
         setupMediaSessionAndNotifications();
         setupPlayerSheet();
         setupBackHandling();
+        setupOnboardingViews();
 
         navigationRailView.setOnItemSelectedListener(item -> {
             int itemId = item.getItemId();
@@ -385,7 +490,15 @@ public class MainActivity extends AppCompatActivity {
                 showNowPlaying();
                 return true;
             } else if (itemId == R.id.nav_tracks) {
+                isGenreMode = false;
                 showSection(tracksContainer);
+                return true;
+            } else if (itemId == R.id.nav_genre) {
+                isGenreMode = true;
+                showSection(tracksContainer);
+                if (settingsManager != null && settingsManager.isGenreOnboardingSeen() && !settingsManager.isGenreInitialAnalysisDone()) {
+                    runFullLibraryGenreAnalysis(false);
+                }
                 return true;
             } else if (itemId == R.id.nav_artists) {
                 showSection(artistsContainer);
@@ -405,7 +518,15 @@ public class MainActivity extends AppCompatActivity {
         navigationRailView.setSelectedItemId(R.id.nav_tracks);
         showSection(tracksContainer);
 
-        checkPermissionsAndLoadSongs();
+        applyThemeDynamically();
+
+        if (settingsManager != null && !settingsManager.isAppOnboardingCompleted()) {
+            if (!showOnboarding()) {
+                checkPermissionsAndLoadSongs();
+            }
+        } else {
+            checkPermissionsAndLoadSongs();
+        }
     }
 
     private void checkPermissionsAndLoadSongs() {
@@ -505,10 +626,13 @@ public class MainActivity extends AppCompatActivity {
                 cursor.close();
             }
         }
+
+        buildGenreIndex();
         
         List<ListItem> listItems = buildListWithHeaders();
         adapter = new SongAdapter(listItems);
         recyclerView.setAdapter(adapter);
+        if (currentTheme != null) adapter.setTheme(currentTheme);
         adapter.setOnItemClickListener((song, position) -> openSong(position));
         adapter.setOnHeaderClickListener(this::showAlphabetPopup);
         
@@ -517,6 +641,13 @@ public class MainActivity extends AppCompatActivity {
         } else {
             hideEmptyState();
         }
+
+        maybeShowGenreOnboarding();
+
+        if (isGenreMode) {
+            restoreGenreSongList();
+        }
+
         playerSheet.post(this::ensurePlayerSheetVisible);
     }
 
@@ -527,6 +658,9 @@ public class MainActivity extends AppCompatActivity {
         if (included == null || included.isEmpty()) {
             TextView hint = new TextView(this);
             hint.setText("No custom folders added.");
+            if (currentTheme != null) {
+                hint.setTextColor(currentTheme.onSurfaceColor);
+            }
             folderListContainerView.addView(hint);
             return;
         }
@@ -544,10 +678,17 @@ public class MainActivity extends AppCompatActivity {
                 if (doc != null && doc.getName() != null) title = doc.getName();
             } catch (Exception ignored) {}
             tv.setText(title);
+            if (currentTheme != null) {
+                tv.setTextColor(currentTheme.onSurfaceColor);
+            }
             tv.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
             com.google.android.material.button.MaterialButton remove = new com.google.android.material.button.MaterialButton(this);
             remove.setText("Remove");
+            if (currentTheme != null) {
+                remove.setBackgroundTintList(ColorStateList.valueOf(currentTheme.surfaceColor));
+                remove.setTextColor(currentTheme.accentColor);
+            }
             remove.setOnClickListener(v -> {
                 settingsManager.removeIncludedFolder(uriString);
                 refreshFolderList();
@@ -604,10 +745,340 @@ public class MainActivity extends AppCompatActivity {
         return items;
     }
 
+    private void buildGenreIndex() {
+        songGenreByPath.clear();
+        for (Song song : songs) {
+            if (song == null || song.getPath() == null) continue;
+            songGenreByPath.put(song.getPath(), genreClassifier.classify(song));
+        }
+    }
+
+    private void maybeShowGenreOnboarding() {
+        if (settingsManager == null) return;
+        if (!settingsManager.isAppOnboardingCompleted()) return;
+        if (settingsManager.isGenreOnboardingSeen()) return;
+        settingsManager.setGenreOnboardingSeen(true);
+    }
+
+    private void runFullLibraryGenreAnalysis(boolean fromOnboarding) {
+        runFullLibraryGenreAnalysis(fromOnboarding, null);
+    }
+
+    private void runFullLibraryGenreAnalysis(boolean fromOnboarding, GenreAnalysisListener listener) {
+        if (!isGenreAnalysisRunning.compareAndSet(false, true)) {
+            Toast.makeText(this, "Genre analysis is already running", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        List<Song> snapshot = new ArrayList<>(songs);
+        if (snapshot.isEmpty()) {
+            isGenreAnalysisRunning.set(false);
+            Toast.makeText(this, "No songs available for analysis", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Toast.makeText(this, "AI analysis started for " + snapshot.size() + " songs", Toast.LENGTH_SHORT).show();
+        if (listener != null) listener.onStart(snapshot.size());
+
+        new Thread(() -> {
+            Map<String, String> analyzed = new HashMap<>();
+            int processed = 0;
+            int total = snapshot.size();
+
+            for (Song song : snapshot) {
+                if (song == null || song.getPath() == null) continue;
+                String genre = genreClassifier.classify(song);
+                if (genre == null || genre.trim().isEmpty()) genre = GenreClassifier.UNKNOWN_GENRE;
+                analyzed.put(song.getPath(), genre);
+                processed++;
+
+                int progressDone = processed;
+                if (listener != null && (progressDone == total || progressDone % 5 == 0)) {
+                    runOnUiThread(() -> listener.onProgress(progressDone, total));
+                }
+            }
+
+            int finalProcessed = processed;
+            runOnUiThread(() -> {
+                songGenreByPath.clear();
+                songGenreByPath.putAll(analyzed);
+                settingsManager.setGenreInitialAnalysisDone(true);
+                isGenreAnalysisRunning.set(false);
+
+                if (isGenreMode) {
+                    restoreGenreSongList();
+                }
+
+                String doneMessage = fromOnboarding
+                        ? "Onboarding analysis complete: " + finalProcessed + " songs"
+                        : "Genre analysis complete: " + finalProcessed + " songs";
+                Toast.makeText(this, doneMessage, Toast.LENGTH_LONG).show();
+                if (listener != null) listener.onComplete(finalProcessed, total);
+            });
+        }).start();
+    }
+
+    private interface GenreAnalysisListener {
+        void onStart(int totalSongs);
+        void onProgress(int doneSongs, int totalSongs);
+        void onComplete(int doneSongs, int totalSongs);
+    }
+
+    private void setupOnboardingViews() {
+        onboardingOverlay = findViewById(R.id.onboarding_overlay_include);
+        if (onboardingOverlay == null) {
+            onboardingOverlay = findViewById(R.id.onboarding_overlay);
+        }
+        if (onboardingOverlay == null) return;
+
+        onboardingPageWelcome = findViewById(R.id.onboarding_page_welcome);
+        onboardingPageTheme = findViewById(R.id.onboarding_page_theme);
+        onboardingPageAi = findViewById(R.id.onboarding_page_ai);
+        onboardingPageDone = findViewById(R.id.onboarding_page_done);
+
+        onboardingBackButton = findViewById(R.id.onboarding_back_button);
+        onboardingNextButton = findViewById(R.id.onboarding_next_button);
+
+        onboardingThemeAndroid = findViewById(R.id.onboarding_theme_android);
+        onboardingThemeMaterialYou = findViewById(R.id.onboarding_theme_material_you);
+        onboardingThemeMonochrome = findViewById(R.id.onboarding_theme_monochrome);
+        onboardingThemeBozkurt = findViewById(R.id.onboarding_theme_bozkurt);
+        onboardingThemeMecha = findViewById(R.id.onboarding_theme_mecha);
+
+        onboardingAiFoundContainer = findViewById(R.id.onboarding_ai_found_container);
+        onboardingAiMissingContainer = findViewById(R.id.onboarding_ai_missing_container);
+        onboardingAiScanButton = findViewById(R.id.onboarding_ai_scan_button);
+        onboardingAiProgressBar = findViewById(R.id.onboarding_ai_progress_bar);
+        onboardingAiProgressText = findViewById(R.id.onboarding_ai_progress_text);
+
+        if (onboardingBackButton != null) {
+            onboardingBackButton.setOnClickListener(v -> moveOnboardingBack());
+        }
+        if (onboardingNextButton != null) {
+            onboardingNextButton.setOnClickListener(v -> moveOnboardingNext());
+        }
+
+        setupOnboardingThemeButtons();
+
+        if (onboardingAiScanButton != null) {
+            onboardingAiScanButton.setOnClickListener(v -> {
+                if (!hasReadMediaPermission()) {
+                    pendingOnboardingScanAfterPermission = true;
+                    String permission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                            ? Manifest.permission.READ_MEDIA_AUDIO
+                            : Manifest.permission.READ_EXTERNAL_STORAGE;
+                    requestPermissionLauncher.launch(permission);
+                    return;
+                }
+
+                if (songs.isEmpty()) {
+                    loadSongs();
+                }
+
+                runFullLibraryGenreAnalysis(true, new GenreAnalysisListener() {
+                    @Override
+                    public void onStart(int totalSongs) {
+                        updateOnboardingAnalysisProgress(0, totalSongs);
+                    }
+
+                    @Override
+                    public void onProgress(int doneSongs, int totalSongs) {
+                        updateOnboardingAnalysisProgress(doneSongs, totalSongs);
+                    }
+
+                    @Override
+                    public void onComplete(int doneSongs, int totalSongs) {
+                        onboardingAnalysisCompleted = true;
+                        updateOnboardingAnalysisProgress(doneSongs, totalSongs);
+                        if (onboardingAiScanButton != null) onboardingAiScanButton.setEnabled(false);
+                    }
+                });
+            });
+        }
+    }
+
+    private void setupOnboardingThemeButtons() {
+        if (onboardingThemeAndroid != null) {
+            onboardingThemeAndroid.setOnClickListener(v -> applyThemeFromOnboarding(SettingsManager.THEME_ANDROID));
+        }
+        if (onboardingThemeMaterialYou != null) {
+            onboardingThemeMaterialYou.setOnClickListener(v -> applyThemeFromOnboarding(SettingsManager.THEME_MATERIAL_YOU));
+        }
+        if (onboardingThemeMonochrome != null) {
+            onboardingThemeMonochrome.setOnClickListener(v -> applyThemeFromOnboarding(SettingsManager.THEME_MONOCHROME));
+        }
+        if (onboardingThemeBozkurt != null) {
+            onboardingThemeBozkurt.setOnClickListener(v -> applyThemeFromOnboarding(SettingsManager.THEME_BOZKURT));
+        }
+        if (onboardingThemeMecha != null) {
+            onboardingThemeMecha.setOnClickListener(v -> applyThemeFromOnboarding(SettingsManager.THEME_MECHA));
+        }
+    }
+
+    private void applyThemeFromOnboarding(String themeKey) {
+        settingsManager.setTheme(themeKey);
+        applyThemeDynamically();
+        updateSettingsButtonStates();
+        updateOnboardingThemeButtonStates();
+    }
+
+    private boolean showOnboarding() {
+        if (onboardingOverlay == null) return false;
+        isOnboardingVisible = true;
+        onboardingStep = 0;
+        onboardingOverlay.setVisibility(View.VISIBLE);
+        applyOnboardingTheme();
+        refreshOnboardingStep();
+        return true;
+    }
+
+    private void moveOnboardingNext() {
+        if (!isOnboardingVisible) return;
+
+        if (onboardingStep == 2) {
+            boolean modelReady = genreClassifier != null && genreClassifier.isLocalModelReady();
+            if (modelReady && !onboardingAnalysisCompleted && !settingsManager.isGenreInitialAnalysisDone()) {
+                Toast.makeText(this, "Run AI scan first to continue", Toast.LENGTH_SHORT).show();
+                return;
+            }
+        }
+
+        if (onboardingStep >= 3) {
+            finishOnboarding();
+            return;
+        }
+        onboardingStep++;
+        refreshOnboardingStep();
+    }
+
+    private void moveOnboardingBack() {
+        if (!isOnboardingVisible) return;
+        if (onboardingStep <= 0) return;
+        onboardingStep--;
+        refreshOnboardingStep();
+    }
+
+    private void refreshOnboardingStep() {
+        if (onboardingPageWelcome == null) return;
+
+        onboardingPageWelcome.setVisibility(onboardingStep == 0 ? View.VISIBLE : View.GONE);
+        onboardingPageTheme.setVisibility(onboardingStep == 1 ? View.VISIBLE : View.GONE);
+        onboardingPageAi.setVisibility(onboardingStep == 2 ? View.VISIBLE : View.GONE);
+        onboardingPageDone.setVisibility(onboardingStep == 3 ? View.VISIBLE : View.GONE);
+
+        View active = onboardingPageWelcome;
+        if (onboardingStep == 1) active = onboardingPageTheme;
+        else if (onboardingStep == 2) active = onboardingPageAi;
+        else if (onboardingStep == 3) active = onboardingPageDone;
+        animateOnboardingPage(active);
+
+        if (onboardingBackButton != null) {
+            onboardingBackButton.setEnabled(onboardingStep > 0);
+            onboardingBackButton.setAlpha(onboardingStep > 0 ? 1f : 0.4f);
+        }
+        if (onboardingNextButton != null) {
+            onboardingNextButton.setText(onboardingStep == 3 ? "Start" : "Next");
+        }
+
+        if (onboardingStep == 1) {
+            updateOnboardingThemeButtonStates();
+        }
+        if (onboardingStep == 2) {
+            refreshOnboardingAiStep();
+        }
+    }
+
+    private void animateOnboardingPage(View page) {
+        if (page == null) return;
+        page.setAlpha(0f);
+        page.setTranslationY(dpToPx(18));
+        page.setScaleX(0.97f);
+        page.setScaleY(0.97f);
+        page.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(360)
+                .setInterpolator(new OvershootInterpolator(0.8f))
+                .start();
+    }
+
+    private void refreshOnboardingAiStep() {
+        boolean modelReady = genreClassifier != null && genreClassifier.isLocalModelReady();
+        if (onboardingAiFoundContainer != null) {
+            onboardingAiFoundContainer.setVisibility(modelReady ? View.VISIBLE : View.GONE);
+        }
+        if (onboardingAiMissingContainer != null) {
+            onboardingAiMissingContainer.setVisibility(modelReady ? View.GONE : View.VISIBLE);
+        }
+
+        if (onboardingAiProgressBar != null && settingsManager.isGenreInitialAnalysisDone()) {
+            onboardingAiProgressBar.setProgress(100);
+            if (onboardingAiProgressText != null) {
+                onboardingAiProgressText.setText("Analysis complete");
+            }
+            onboardingAnalysisCompleted = true;
+            if (onboardingAiScanButton != null) onboardingAiScanButton.setEnabled(false);
+        }
+    }
+
+    private void updateOnboardingAnalysisProgress(int done, int total) {
+        if (onboardingAiProgressBar != null) {
+            onboardingAiProgressBar.setMax(Math.max(total, 1));
+            onboardingAiProgressBar.setProgress(Math.min(done, Math.max(total, 1)));
+        }
+        if (onboardingAiProgressText != null) {
+            onboardingAiProgressText.setText("Analyzed " + done + " / " + total + " songs");
+        }
+    }
+
+    private void updateOnboardingThemeButtonStates() {
+        String currentThemeStr = settingsManager.getTheme();
+        styleSettingsButton(onboardingThemeAndroid, currentThemeStr.equals(SettingsManager.THEME_ANDROID));
+        styleSettingsButton(onboardingThemeMaterialYou, currentThemeStr.equals(SettingsManager.THEME_MATERIAL_YOU));
+        styleSettingsButton(onboardingThemeMonochrome, currentThemeStr.equals(SettingsManager.THEME_MONOCHROME));
+        styleSettingsButton(onboardingThemeBozkurt, currentThemeStr.equals(SettingsManager.THEME_BOZKURT));
+        styleSettingsButton(onboardingThemeMecha, currentThemeStr.equals(SettingsManager.THEME_MECHA));
+    }
+
+    private void finishOnboarding() {
+        if (settingsManager != null) {
+            settingsManager.setAppOnboardingCompleted(true);
+            settingsManager.setGenreOnboardingSeen(true);
+        }
+        isOnboardingVisible = false;
+        if (onboardingOverlay != null) onboardingOverlay.setVisibility(View.GONE);
+        checkPermissionsAndLoadSongs();
+    }
+
+    private List<ListItem> buildGenreListWithHeaders() {
+        List<ListItem> items = new ArrayList<>();
+        if (songs.isEmpty()) return items;
+
+        Map<String, List<Integer>> genreBuckets = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (int i = 0; i < songs.size(); i++) {
+            Song song = songs.get(i);
+            String genre = songGenreByPath.get(song.getPath());
+            if (genre == null || genre.trim().isEmpty()) {
+                genre = GenreClassifier.UNKNOWN_GENRE;
+            }
+            genreBuckets.computeIfAbsent(genre, key -> new ArrayList<>()).add(i);
+        }
+
+        for (Map.Entry<String, List<Integer>> entry : genreBuckets.entrySet()) {
+            items.add(ListItem.createHeader(entry.getKey()));
+            for (Integer songIndex : entry.getValue()) {
+                if (songIndex == null || songIndex < 0 || songIndex >= songs.size()) continue;
+                items.add(ListItem.createSong(songs.get(songIndex), songIndex));
+            }
+        }
+        return items;
+    }
+
     private void showAlphabetPopup() {
         if (alphabetPopupContainer == null || adapter == null) return;
         
-        // Get available letters from adapter
         java.util.Set<String> availableLetters = new java.util.HashSet<>();
         for (int i = 0; i < adapter.getItemCount(); i++) {
             ListItem item = adapter.getItemAtPosition(i);
@@ -618,7 +1089,6 @@ public class MainActivity extends AppCompatActivity {
         
         if (availableLetters.isEmpty()) return;
         
-        // Clear and populate popup
         alphabetPopupContainer.removeAllViews();
         
         View popupView = getLayoutInflater().inflate(R.layout.alphabet_popup, alphabetPopupContainer, false);
@@ -633,7 +1103,7 @@ public class MainActivity extends AppCompatActivity {
             letterView.setGravity(Gravity.CENTER);
             letterView.setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12));
             letterView.setTextSize(18f);
-            letterView.setTextColor(ContextCompat.getColor(this, R.color.player_control));
+            letterView.setTextColor(currentTheme != null ? currentTheme.accentColor : Color.WHITE);
             letterView.setTypeface(null, android.graphics.Typeface.BOLD);
             letterView.setClickable(true);
             letterView.setFocusable(true);
@@ -718,13 +1188,41 @@ public class MainActivity extends AppCompatActivity {
         playPauseButton = findViewById(R.id.button_play_pause);
         forwardButton = findViewById(R.id.button_forward);
         repeatButton = findViewById(R.id.button_repeat);
+        miniSeekBar = findViewById(R.id.mini_wavy_seekbar);
+
+        if (miniSeekBar != null) {
+            miniSeekBar.setOnValueChangeListener((oldValue, newValue) -> {
+                if (mediaPlayer != null) {
+                    int duration = mediaPlayer.getDuration();
+                    if (duration > 0) {
+                        mediaPlayer.seekTo((int)(newValue * duration));
+                    }
+                }
+                return null;
+            });
+            miniSeekBar.setWaveAnimating(false);
+            miniSeekBar.setOnTouchListener((v, event) -> {
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        miniSeekBar.setWaveAnimating(false);
+                        break;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+                            miniSeekBar.setWaveAnimating(true);
+                        }
+                        break;
+                }
+                return false;
+            });
+        }
 
         playerSheetBehavior = BottomSheetBehavior.from(playerSheet);
         playerSheetBehavior.setHideable(false);
         playerSheetBehavior.setSkipCollapsed(false);
         playerSheetBehavior.setSaveFlags(BottomSheetBehavior.SAVE_NONE);
         playerSheetBehavior.setDraggable(true);
-        playerSheetBehavior.setPeekHeight(dpToPx(88), false);
+        playerSheetBehavior.setPeekHeight(dpToPx(COLLAPSED_PEEK_HEIGHT_DP), false);
         playerSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
         
         playerSheet.post(() -> {
@@ -784,6 +1282,36 @@ public class MainActivity extends AppCompatActivity {
         fullPlayerSheet = findViewById(R.id.full_player_sheet);
         fullPlayerTitleView = findViewById(R.id.full_player_title);
         fullPlayerArtistView = findViewById(R.id.full_player_artist);
+        fullSeekBar = findViewById(R.id.full_wavy_seekbar);
+
+        if (fullSeekBar != null) {
+            fullSeekBar.setOnValueChangeListener((oldValue, newValue) -> {
+                if (mediaPlayer != null) {
+                    int duration = mediaPlayer.getDuration();
+                    if (duration > 0) {
+                        mediaPlayer.seekTo((int)(newValue * duration));
+                    }
+                }
+                return null;
+            });
+        }
+        if (fullSeekBar != null) {
+            fullSeekBar.setWaveAnimating(false);
+            fullSeekBar.setOnTouchListener((v, event) -> {
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        fullSeekBar.setWaveAnimating(false);
+                        break;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+                            fullSeekBar.setWaveAnimating(true);
+                        }
+                        break;
+                }
+                return false;
+            });
+        }
         fullPlayerAlbumView = findViewById(R.id.full_player_album);
         fullArtworkView = findViewById(R.id.full_artwork_view);
         fullShuffleButton = findViewById(R.id.full_button_shuffle);
@@ -949,21 +1477,42 @@ public class MainActivity extends AppCompatActivity {
                     
                     // Update navigation rail
                     if (navigationRailView != null) {
-                        navigationRailView.setItemActiveIndicatorColor(android.content.res.ColorStateList.valueOf(currentTheme.accentColor));
-                        navigationRailView.setItemIconTintList(android.content.res.ColorStateList.valueOf(currentTheme.onSurfaceVariantColor));
-                        navigationRailView.setItemTextColor(android.content.res.ColorStateList.valueOf(currentTheme.onSurfaceVariantColor));
+                        ColorStateList navColorState = new ColorStateList(
+                                new int[][]{
+                                        new int[]{android.R.attr.state_checked},
+                                        new int[]{}
+                                },
+                                new int[]{
+                                        currentTheme.onSurfaceColor,
+                                        currentTheme.onSurfaceVariantColor
+                                }
+                        );
+                        int indicator = blendColors(currentTheme.accentColor, currentTheme.backgroundColor, 0.35f);
+                        navigationRailView.setItemActiveIndicatorColor(ColorStateList.valueOf(indicator));
+                        navigationRailView.setItemIconTintList(navColorState);
+                        navigationRailView.setItemTextColor(navColorState);
                     }
                     
                     // Update player sheet
                     applyThemeToPlayer();
                     
+                    // Reload artwork to apply theme-specific changes
+                    if (currentSongIndex >= 0 && currentSongIndex < songs.size()) {
+                        loadArtwork(songs.get(currentSongIndex));
+                    }
+                    
                     // Update all buttons in settings
                     updateSettingsButtonStates();
+                    updateOnboardingThemeButtonStates();
+
+                    if (onboardingOverlay != null && onboardingOverlay.getVisibility() == View.VISIBLE) {
+                        applyOnboardingTheme();
+                    }
                     
-                    // Update header text colors in item_header.xml dynamically won't work, but we can update adapters
-                    if (adapter != null) adapter.notifyDataSetChanged();
-                    if (artistAdapter != null) artistAdapter.notifyDataSetChanged();
-                    if (albumAdapter != null) albumAdapter.notifyDataSetChanged();
+                    if (adapter != null) adapter.setTheme(currentTheme);
+                    if (artistAdapter != null) artistAdapter.setTheme(currentTheme);
+                    if (albumAdapter != null) albumAdapter.setTheme(currentTheme);
+                    if (playlistAdapter != null) playlistAdapter.setTheme(currentTheme);
                     
                     // Fade back in
                     decorView.animate()
@@ -972,6 +1521,40 @@ public class MainActivity extends AppCompatActivity {
                             .start();
                 })
                 .start();
+    }
+
+    private void applyOnboardingTheme() {
+        if (onboardingOverlay == null || currentTheme == null) return;
+        onboardingOverlay.setBackgroundColor(blendColors(currentTheme.backgroundColor, Color.BLACK, 0.45f));
+        View onboardingCard = findViewById(R.id.onboarding_card);
+        if (onboardingCard != null) {
+            onboardingCard.setBackgroundColor(blendColors(currentTheme.surfaceColor, Color.BLACK, 0.15f));
+        }
+
+        int[] titleIds = new int[]{
+                R.id.onboarding_welcome_title,
+                R.id.onboarding_theme_title,
+                R.id.onboarding_ai_title,
+                R.id.onboarding_done_title
+        };
+        for (int id : titleIds) {
+            TextView textView = findViewById(id);
+            if (textView != null) textView.setTextColor(currentTheme.onSurfaceColor);
+        }
+
+        int[] bodyIds = new int[]{
+                R.id.onboarding_ai_found_text,
+                R.id.onboarding_ai_missing_text,
+                R.id.onboarding_ai_progress_text
+        };
+        for (int id : bodyIds) {
+            TextView textView = findViewById(id);
+            if (textView != null) textView.setTextColor(currentTheme.onSurfaceVariantColor);
+        }
+
+        styleSettingsButton(onboardingBackButton, true);
+        styleSettingsButton(onboardingNextButton, true);
+        styleSettingsButton(onboardingAiScanButton, true);
     }
     
     private void applyThemeToPlayer() {
@@ -1000,8 +1583,32 @@ public class MainActivity extends AppCompatActivity {
                 mainContentView.setBackgroundColor(currentTheme.backgroundColor);
             }
         }
-        if (playerSheetCard != null) playerSheetCard.setBackgroundColor(currentTheme.surfaceColor);
-        if (fullPlayerSheet != null) fullPlayerSheet.setBackgroundColor(currentTheme.surfaceColor);
+        View[] sections = new View[]{tracksContainer, artistsContainer, playlistsContainer, albumsContainer, settingsContainer};
+        for (View section : sections) {
+            if (section != null) {
+                section.setBackgroundColor(Color.TRANSPARENT);
+            }
+        }
+        if (navigationRailView != null) {
+            navigationRailView.setBackgroundColor(blendColors(currentTheme.backgroundColor, Color.BLACK, 0.2f));
+        }
+        if (playerSheetCard != null) playerSheetCard.setCardBackgroundColor(Color.TRANSPARENT);
+        if (fullPlayerSheet != null) fullPlayerSheet.setCardBackgroundColor(Color.TRANSPARENT);
+
+        View miniPlayerBackground = playerSheet != null ? playerSheet.findViewById(R.id.player_sheet_background) : null;
+        View fullPlayerBackground = fullPlayerSheet != null ? fullPlayerSheet.findViewById(R.id.full_player_background) : null;
+        tintPlayerSheetBackground(miniPlayerBackground);
+        tintPlayerSheetBackground(fullPlayerBackground);
+
+        View dragHandle = playerSheet != null ? playerSheet.findViewById(R.id.player_drag_handle) : null;
+        if (dragHandle != null) {
+            Drawable handleBg = dragHandle.getBackground();
+            if (handleBg instanceof GradientDrawable) {
+                ((GradientDrawable) handleBg.mutate()).setColor(currentTheme.onSurfaceVariantColor);
+            } else {
+                dragHandle.setBackgroundColor(currentTheme.onSurfaceVariantColor);
+            }
+        }
         
         // Update player controls tint
         updateControlTint(shuffleButton, isShuffleEnabled);
@@ -1014,11 +1621,13 @@ public class MainActivity extends AppCompatActivity {
         if (collapsedTitleView != null) collapsedTitleView.setTextColor(currentTheme.onSurfaceColor);
         if (playerArtistView != null) playerArtistView.setTextColor(currentTheme.accentColor);
         if (playerAlbumView != null) playerAlbumView.setTextColor(currentTheme.accentColor);
+        tintDiscRing(artworkView);
         
         // Update full player text colors
         if (fullPlayerTitleView != null) fullPlayerTitleView.setTextColor(currentTheme.onSurfaceColor);
         if (fullPlayerArtistView != null) fullPlayerArtistView.setTextColor(currentTheme.accentColor);
         if (fullPlayerAlbumView != null) fullPlayerAlbumView.setTextColor(currentTheme.accentColor);
+        tintDiscRing(fullArtworkView);
         
         // Update control button tints
         applyControlButtonTint(playPauseButton);
@@ -1028,6 +1637,79 @@ public class MainActivity extends AppCompatActivity {
         applyControlButtonTint(fullBackButton);
         applyControlButtonTint(fullForwardButton);
         applyControlButtonTint(fullPlayerClose);
+        
+        if (miniSeekBar != null) {
+            miniSeekBar.setWaveColor(currentTheme.accentColor);
+            miniSeekBar.setActiveTrackColor(currentTheme.accentColor);
+            miniSeekBar.setInactiveTrackColor(currentTheme.listSurfaceColor);
+            miniSeekBar.setThumbColor(currentTheme.accentColor);
+        }
+        if (fullSeekBar != null) {
+            fullSeekBar.setWaveColor(currentTheme.accentColor);
+            fullSeekBar.setActiveTrackColor(currentTheme.accentColor);
+            fullSeekBar.setInactiveTrackColor(currentTheme.listSurfaceColor);
+            fullSeekBar.setThumbColor(currentTheme.accentColor);
+        }
+        
+        if (aboutSectionHeader != null) aboutSectionHeader.setTextColor(currentTheme.accentColor);
+        if (aboutAppName != null) aboutAppName.setTextColor(currentTheme.onSurfaceColor);
+        if (aboutVersion != null) aboutVersion.setTextColor(currentTheme.onSurfaceVariantColor);
+        if (aboutDescription != null) aboutDescription.setTextColor(currentTheme.onSurfaceVariantColor);
+        if (settingsTitle != null) settingsTitle.setTextColor(currentTheme.onSurfaceColor);
+        if (settingsThemeHeading != null) settingsThemeHeading.setTextColor(currentTheme.accentColor);
+        if (settingsSortHeading != null) settingsSortHeading.setTextColor(currentTheme.accentColor);
+        if (settingsWallpaperHeading != null) settingsWallpaperHeading.setTextColor(currentTheme.accentColor);
+        if (settingsMusicHeading != null) settingsMusicHeading.setTextColor(currentTheme.accentColor);
+        if (emptyView != null) emptyView.setTextColor(currentTheme.onSurfaceColor);
+        if (artistsEmptyView != null) artistsEmptyView.setTextColor(currentTheme.onSurfaceColor);
+        if (albumsEmptyView != null) albumsEmptyView.setTextColor(currentTheme.onSurfaceColor);
+        if (includeDownloadsCheckbox != null) includeDownloadsCheckbox.setTextColor(currentTheme.onSurfaceColor);
+        if (includeDocumentsCheckbox != null) includeDocumentsCheckbox.setTextColor(currentTheme.onSurfaceColor);
+        if (includeMusicCheckbox != null) includeMusicCheckbox.setTextColor(currentTheme.onSurfaceColor);
+        if (foldersHint != null) foldersHint.setTextColor(currentTheme.onSurfaceVariantColor);
+        if (playlistDetailTitle != null) playlistDetailTitle.setTextColor(currentTheme.onSurfaceColor);
+        if (playlistDetailBack != null) playlistDetailBack.setColorFilter(currentTheme.onSurfaceColor);
+        if (playlistDetailAddButton != null) playlistDetailAddButton.setColorFilter(currentTheme.accentColor);
+        if (buttonCreatePlaylist != null) {
+            buttonCreatePlaylist.setBackgroundTintList(ColorStateList.valueOf(currentTheme.accentColor));
+            buttonCreatePlaylist.setColorFilter(currentTheme.onSurfaceColor);
+        }
+        if (playlistAddInTracks != null) {
+            playlistAddInTracks.setColorFilter(currentTheme.accentColor);
+        }
+    }
+
+    private void tintPlayerSheetBackground(View sheetBg) {
+        if (sheetBg == null || currentTheme == null) return;
+        Drawable bg = sheetBg.getBackground();
+        if (bg instanceof GradientDrawable) {
+            GradientDrawable gd = (GradientDrawable) bg.mutate();
+            int top = blendColors(currentTheme.surfaceColor, currentTheme.accentColor, 0.12f);
+            int bottom = blendColors(currentTheme.surfaceColor, Color.BLACK, 0.18f);
+            gd.setOrientation(GradientDrawable.Orientation.TOP_BOTTOM);
+            gd.setColors(new int[]{top, bottom});
+        } else {
+            sheetBg.setBackgroundColor(currentTheme.surfaceColor);
+        }
+    }
+
+    private void tintDiscRing(View view) {
+        if (view == null || currentTheme == null) return;
+        Drawable bg = view.getBackground();
+        if (bg instanceof GradientDrawable) {
+            GradientDrawable gd = (GradientDrawable) bg.mutate();
+            gd.setColor(blendColors(currentTheme.surfaceColor, Color.BLACK, 0.08f));
+            gd.setStroke(dpToPx(3), currentTheme.accentColor);
+        }
+    }
+
+    private int blendColors(int baseColor, int overlayColor, float ratio) {
+        float clamped = Math.max(0f, Math.min(1f, ratio));
+        int a = Math.round(Color.alpha(baseColor) * (1 - clamped) + Color.alpha(overlayColor) * clamped);
+        int r = Math.round(Color.red(baseColor) * (1 - clamped) + Color.red(overlayColor) * clamped);
+        int g = Math.round(Color.green(baseColor) * (1 - clamped) + Color.green(overlayColor) * clamped);
+        int b = Math.round(Color.blue(baseColor) * (1 - clamped) + Color.blue(overlayColor) * clamped);
+        return Color.argb(a, r, g, b);
     }
 
     private Drawable loadWallpaperDrawable(String uriStr) {
@@ -1283,7 +1965,7 @@ public class MainActivity extends AppCompatActivity {
                 ? playerHeader.getHeight()
                 : dpToPx(60);
         int paddingTop = playerSheet.getPaddingTop();
-        collapsedPeekHeight = Math.max(dpToPx(88), paddingTop + headerHeight);
+        collapsedPeekHeight = Math.max(dpToPx(COLLAPSED_PEEK_HEIGHT_DP), paddingTop + headerHeight);
     }
 
     private void showMiniPlayerCollapsed() {
@@ -1291,7 +1973,7 @@ public class MainActivity extends AppCompatActivity {
         if (collapsedPeekHeight <= 0) {
             updateCollapsedPeekHeight();
         }
-        int peekHeight = collapsedPeekHeight > 0 ? collapsedPeekHeight : dpToPx(88);
+        int peekHeight = collapsedPeekHeight > 0 ? collapsedPeekHeight : dpToPx(COLLAPSED_PEEK_HEIGHT_DP);
         playerSheetBehavior.setPeekHeight(peekHeight, false);
         playerSheetBehavior.setHideable(false);
         playerSheetBehavior.setDraggable(true);
@@ -1348,16 +2030,20 @@ public class MainActivity extends AppCompatActivity {
             mediaPlayer.setOnPreparedListener(mp -> {
                 mp.start();
                 updatePlayPauseIcon(true);
+                updateWaveAnimationState(true);
                 startArtworkSpin();
                 updateNotification(true);
+                seekBarUpdateHandler.post(seekBarUpdateRunnable);
             });
             mediaPlayer.setOnCompletionListener(mp -> {
                 if (isRepeatEnabled) {
                     mp.seekTo(0);
                     mp.start();
+                    updateWaveAnimationState(true);
                     startArtworkSpin();
                     updateNotification(true);
                 } else {
+                    updateWaveAnimationState(false);
                     playNextTrack();
                 }
             });
@@ -1365,6 +2051,7 @@ public class MainActivity extends AppCompatActivity {
         } catch (IOException e) {
             Toast.makeText(this, "Unable to play song", Toast.LENGTH_SHORT).show();
             updatePlayPauseIcon(false);
+            updateWaveAnimationState(false);
             updateNotification(false);
         }
     }
@@ -1393,12 +2080,16 @@ public class MainActivity extends AppCompatActivity {
         if (mediaPlayer.isPlaying()) {
             mediaPlayer.pause();
             updatePlayPauseIcon(false);
+            updateWaveAnimationState(false);
             pauseArtworkSpin();
+            seekBarUpdateHandler.removeCallbacks(seekBarUpdateRunnable);
             updateNotification(false);
         } else {
             mediaPlayer.start();
             updatePlayPauseIcon(true);
+            updateWaveAnimationState(true);
             startArtworkSpin();
+            seekBarUpdateHandler.post(seekBarUpdateRunnable);
             updateNotification(true);
         }
     }
@@ -1418,6 +2109,11 @@ public class MainActivity extends AppCompatActivity {
         updateControlTint(repeatButton, isRepeatEnabled);
         updateControlTint(fullRepeatButton, isRepeatEnabled);
         updateNotification(mediaPlayer != null && mediaPlayer.isPlaying());
+    }
+
+    private void updateWaveAnimationState(boolean playing) {
+        if (miniSeekBar != null) miniSeekBar.setWaveAnimating(playing);
+        if (fullSeekBar != null) fullSeekBar.setWaveAnimating(playing);
     }
 
     private void handleBackPress() {
@@ -1539,8 +2235,13 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateControlTint(ImageButton button, boolean active) {
         if (button == null) return;
-        int color = ContextCompat.getColor(this, active ? R.color.player_accent : R.color.player_control);
-        button.setColorFilter(color);
+        if (currentTheme != null) {
+            int color = active ? currentTheme.accentColor : currentTheme.onSurfaceVariantColor;
+            button.setColorFilter(color);
+        } else {
+            int color = ContextCompat.getColor(this, active ? R.color.player_accent : R.color.player_control);
+            button.setColorFilter(color);
+        }
     }
 
     private void loadArtists() {
@@ -1564,6 +2265,7 @@ public class MainActivity extends AppCompatActivity {
         List<ListItem> listItems = buildArtistListWithHeaders();
         artistAdapter = new GenericListAdapter(listItems);
         artistsRecyclerView.setAdapter(artistAdapter);
+        if (currentTheme != null) artistAdapter.setTheme(currentTheme);
         artistAdapter.setOnItemClickListener(item -> {
             if (item.getType() == ListItem.TYPE_HEADER) {
                 showAlphabetPopupForArtists();
@@ -1618,6 +2320,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         SongAdapter sa = new SongAdapter(items);
+        if (currentTheme != null) sa.setTheme(currentTheme);
         sa.setOnItemClickListener((song, pos) -> {
             if (pos >= 0 && pos < queueIndices.size()) {
                 int globalIndex = queueIndices.get(pos);
@@ -1668,6 +2371,7 @@ public class MainActivity extends AppCompatActivity {
         List<ListItem> listItems = buildAlbumListWithHeaders();
         albumAdapter = new GenericListAdapter(listItems);
         albumsRecyclerView.setAdapter(albumAdapter);
+        if (currentTheme != null) albumAdapter.setTheme(currentTheme);
         albumAdapter.setOnItemClickListener(item -> {
             if (item.getType() == ListItem.TYPE_HEADER) {
                 showAlphabetPopupForAlbums();
@@ -1721,6 +2425,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         SongAdapter sa = new SongAdapter(items);
+        if (currentTheme != null) sa.setTheme(currentTheme);
         sa.setOnItemClickListener((song, pos) -> {
             // pos is position within this items list; translate to global index via queueIndices
             if (pos >= 0 && pos < queueIndices.size()) {
@@ -1768,7 +2473,7 @@ public class MainActivity extends AppCompatActivity {
             letterView.setGravity(Gravity.CENTER);
             letterView.setPadding(dpToPx(12), dpToPx(12), dpToPx(12), dpToPx(12));
             letterView.setTextSize(18f);
-            letterView.setTextColor(ContextCompat.getColor(this, R.color.player_control));
+            letterView.setTextColor(currentTheme != null ? currentTheme.accentColor : Color.WHITE);
             letterView.setTypeface(null, android.graphics.Typeface.BOLD);
             letterView.setClickable(true);
             letterView.setFocusable(true);
@@ -1915,11 +2620,15 @@ public class MainActivity extends AppCompatActivity {
         NotificationCompat.Action closeAction = new NotificationCompat.Action(
                 android.R.drawable.ic_menu_close_clear_cancel, "Stop", buildPendingIntent(ACTION_CLOSE, 4));
 
+        int notificationAccent = currentTheme != null
+                ? currentTheme.accentColor
+                : ContextCompat.getColor(this, R.color.player_accent);
+
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_media_play)
                 .setContentTitle(song.getTitle())
                 .setContentText(song.getArtist() == null ? "" : song.getArtist())
-                .setColor(ContextCompat.getColor(this, R.color.player_accent))
+                .setColor(notificationAccent)
                 .setContentIntent(contentIntent)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setOnlyAlertOnce(true)
@@ -2032,11 +2741,12 @@ public class MainActivity extends AppCompatActivity {
             try {
                 mediaPlayer.stop();
             } catch (IllegalStateException ignored) {
-                // Player might not be prepared yet.
             }
             mediaPlayer.release();
             mediaPlayer = null;
         }
+        seekBarUpdateHandler.removeCallbacks(seekBarUpdateRunnable);
+        updateWaveAnimationState(false);
         if (artworkAnimator != null) {
             artworkAnimator.cancel();
         }
@@ -2084,6 +2794,13 @@ public class MainActivity extends AppCompatActivity {
         return Math.round(dp * density);
     }
 
+    private void toggleAboutSection() {
+        isAboutExpanded = !isAboutExpanded;
+        if (aboutAppName != null) aboutAppName.setVisibility(isAboutExpanded ? View.VISIBLE : View.GONE);
+        if (aboutVersion != null) aboutVersion.setVisibility(isAboutExpanded ? View.VISIBLE : View.GONE);
+        if (aboutDescription != null) aboutDescription.setVisibility(isAboutExpanded ? View.VISIBLE : View.GONE);
+    }
+
     private void showSection(View targetSection) {
         setSectionVisibility(nowPlayingContainer, false);
         setSectionVisibility(tracksContainer, targetSection == tracksContainer);
@@ -2092,9 +2809,16 @@ public class MainActivity extends AppCompatActivity {
         setSectionVisibility(albumsContainer, targetSection == albumsContainer);
         setSectionVisibility(settingsContainer, targetSection == settingsContainer);
 
+        if (playerSheet != null && currentSongIndex >= 0) {
+            playerSheet.setVisibility(View.VISIBLE);
+        }
+
         if (targetSection == tracksContainer) {
-            // Always restore the full songs listing when viewing Tracks
-            restoreFullSongList();
+            if (isGenreMode) {
+                restoreGenreSongList();
+            } else {
+                restoreFullSongList();
+            }
             if (songs.isEmpty()) {
                 showEmptyState(hasReadMediaPermission() ? R.string.empty_state_no_music : R.string.empty_state_no_permission);
             } else {
@@ -2113,6 +2837,10 @@ public class MainActivity extends AppCompatActivity {
         setSectionVisibility(albumsContainer, false);
         setSectionVisibility(settingsContainer, false);
         hideEmptyState();
+        
+        if (playerSheet != null) {
+            playerSheet.setVisibility(View.GONE);
+        }
         
         if (fullPlayerSheet != null) {
             fullPlayerSheet.setVisibility(View.VISIBLE);
@@ -2158,6 +2886,7 @@ public class MainActivity extends AppCompatActivity {
 
         if (playlistsRecyclerView != null) {
             playlistAdapter = new PlaylistAdapter(this, playlists, (p, pos) -> showPlaylistInPlaylistSection(p));
+            if (currentTheme != null) playlistAdapter.setTheme(currentTheme);
             playlistAdapter.setOnItemLongClickListener((p, pos) -> {
                 if ("Favorites".equalsIgnoreCase(p.getName())) {
                     Toast.makeText(this, "Cannot delete Favorites", Toast.LENGTH_SHORT).show();
@@ -2274,6 +3003,7 @@ public class MainActivity extends AppCompatActivity {
             }
 
             SongAdapter sa = new SongAdapter(items);
+            if (currentTheme != null) sa.setTheme(currentTheme);
             sa.setOnItemClickListener((song, pos) -> startPlaybackWithQueue(pos, queueIndices));
             sa.setOnItemLongClickListener((song, pos) -> {
                 new androidx.appcompat.app.AlertDialog.Builder(this)
@@ -2337,6 +3067,7 @@ public class MainActivity extends AppCompatActivity {
         }
         adapter = new SongAdapter(items);
         recyclerView.setAdapter(adapter);
+        if (currentTheme != null) adapter.setTheme(currentTheme);
         adapter.setOnItemClickListener((song, pos) -> startPlayback(pos));
         adapter.setOnItemLongClickListener((song, pos) -> {
             // remove from playlist
@@ -2360,6 +3091,19 @@ public class MainActivity extends AppCompatActivity {
         List<ListItem> listItems = buildListWithHeaders();
         adapter = new SongAdapter(listItems);
         recyclerView.setAdapter(adapter);
+        if (currentTheme != null) adapter.setTheme(currentTheme);
+        adapter.setOnItemClickListener((song, position) -> openSong(position));
+        adapter.setOnHeaderClickListener(this::showAlphabetPopup);
+        adapter.setOnItemLongClickListener((song, position) -> {});
+        if (playlistAddInTracks != null) playlistAddInTracks.setVisibility(View.GONE);
+    }
+
+    private void restoreGenreSongList() {
+        currentPlaylistViewing = null;
+        List<ListItem> genreItems = buildGenreListWithHeaders();
+        adapter = new SongAdapter(genreItems);
+        recyclerView.setAdapter(adapter);
+        if (currentTheme != null) adapter.setTheme(currentTheme);
         adapter.setOnItemClickListener((song, position) -> openSong(position));
         adapter.setOnHeaderClickListener(this::showAlphabetPopup);
         adapter.setOnItemLongClickListener((song, position) -> {});
